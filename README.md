@@ -8,7 +8,9 @@ Luna helps photographers find the best spots and moments to capture the moon ris
 
 Each arrow on the map is a shooting location: stand at the arrowhead at the indicated time and the moon will appear behind the object. The arrow direction shows how the ideal position shifts over ±10 minutes, so you can see how quickly you need to move to track the moon. Arrows are colored on a plasma scale from early (purple) to late (yellow) within the displayed date range.
 
-Click any arrow to open a WebGL scene preview: a simulated view from that shooting location looking back toward the object, with the moon positioned in the sky behind it. You can step ±15 minutes around the moment, change sensor size and focal length, and toggle landscape/portrait orientation to plan your framing before you head out.
+Click any arrow to open a WebGL scene preview: a simulated view from that shooting location looking back toward the object, with the moon rendered in its correct phase behind it. You can step ±15 minutes around the moment, change sensor size and focal length, and toggle landscape/portrait orientation to plan your framing before you head out.
+
+From the preview you can download a **calendar entry** (`.ics`) for that specific shot. The 30-minute event includes the shooting coordinates, moon data, and a link back to Luna that reopens the app at the exact object, location, and date — useful for sharing a shot with someone or for finding it again later.
 
 ## How it works
 

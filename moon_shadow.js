@@ -153,6 +153,7 @@ document.body.insertAdjacentHTML('beforeend', `
     <span id="pv-bright-val" style="min-width:28px">&#xD7;1</span>
    </label>
    <button id="pv-info-toggle" style="margin-left:auto">&#x2139; Hide info</button>
+   <button id="pv-ics">&#x1F4C5; Calendar</button>
    <button id="pv-close">&#x2715; Close</button>
   </div>
   <div id="pv-info">Click an arrow on the map to preview the scene from that location.</div>
@@ -267,7 +268,7 @@ const VERT=`attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
 const FRAG=`precision mediump float;
 uniform vec2 uRes;
 uniform float uCamAz,uCamEl,uHFov,uVFov;
-uniform float uMoonAz,uMoonAlt,uMoonRad;
+uniform float uMoonAz,uMoonAlt,uMoonRad,uMoonK,uSunAz,uSunAlt;
 uniform float uObjAz,uObjElC,uObjHH,uObjHW;
 uniform float uSkyB,uBright;
 uniform sampler2D uSL;
@@ -284,8 +285,17 @@ void main(){
   vec3 col=ter?vec3(.12,.09,.07):mix(hc,zc,t);
   float daz=wd(pAz,uMoonAz),del=pEl-uMoonAlt,md=sqrt(daz*daz+del*del);
   if(!ter){
-    col=mix(col,vec3(1.,.97,.76),smoothstep(uMoonRad*1.1,uMoonRad*.85,md));
-    col+=vec3(.9,.85,.5)*exp(-md/(uMoonRad*3.))*.12;
+    float r=md/uMoonRad;
+    vec2 toSun=vec2(wd(uSunAz,uMoonAz),uSunAlt-uMoonAlt);
+    float tsl=length(toSun);if(tsl>.001)toSun/=tsl;else toSun=vec2(1.,0.);
+    vec2 uv=vec2(daz,del)/uMoonRad;
+    float u=dot(uv,toSun);
+    float vp=uv.x*toSun.y-uv.y*toSun.x;
+    float phase=1.-2.*uMoonK;
+    float termX=phase*sqrt(max(0.,1.-vp*vp));
+    float lit=smoothstep(-.05,.05,u-termX)*smoothstep(1.05,.92,r);
+    col=mix(col,vec3(1.,.97,.76),lit);
+    col+=vec3(.9,.85,.5)*exp(-md/(uMoonRad*3.))*.08;
   }
   float oaz=wd(pAz,uObjAz),oel=pEl-uObjElC;
   if(abs(oaz)<uObjHW&&abs(oel)<uObjHH)col=vec3(.04,.04,.04);
@@ -322,6 +332,7 @@ function initGL(){
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   ['uRes','uCamAz','uCamEl','uHFov','uVFov','uMoonAz','uMoonAlt','uMoonRad',
+   'uMoonK','uSunAz','uSunAlt',
    'uObjAz','uObjElC','uObjHH','uObjHW','uSkyB','uBright','uSL']
     .forEach(n=>uL[n]=gl.getUniformLocation(prog,n));
   gl.uniform1i(uL.uSL,0);
@@ -395,9 +406,44 @@ document.getElementById('pv-bright').addEventListener('input',function(){
 document.getElementById('pv-close').onclick=()=>
   document.getElementById('pv-overlay').classList.remove('open');
 
+document.getElementById('pv-ics').onclick=function(){
+  const tMS=curArrow.tMS+curOffset*60000;
+  const mm=curArrow.moonMinutes[curOffset+15];
+  function icsDate(ms){
+    const d=new Date(ms),p=n=>String(n).padStart(2,'0');
+    return d.getUTCFullYear()+p(d.getUTCMonth()+1)+p(d.getUTCDate())+
+           'T'+p(d.getUTCHours())+p(d.getUTCMinutes())+'00Z';
+  }
+  const dist=Math.round(haversine(curLa,curLo,CONFIG.objLat,CONFIG.objLon));
+  const shotURL=buildShotURL(curLa,curLo,tMS);
+  const desc=
+    'Shooting location: '+curLa.toFixed(5)+'\xB0N, '+curLo.toFixed(5)+'\xB0E\\n'+
+    'Object: '+CONFIG.objLat.toFixed(5)+'\xB0N, '+CONFIG.objLon.toFixed(5)+'\xB0E  H='+CONFIG.objH+'m\\n'+
+    'Distance to object: '+dist+' m\\n'+
+    'Moon: alt='+mm[0].toFixed(1)+'\xB0  az='+mm[1].toFixed(1)+'\xB0  illum='+mm[2].toFixed(0)+'%\\n'+
+    'Open in Luna: '+shotURL;
+  const uid=tMS+'-'+Math.random().toString(36).slice(2)+'@luna';
+  const ics=[
+    'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Luna//Moon Photography Planner//EN',
+    'BEGIN:VEVENT',
+    'UID:'+uid,
+    'DTSTART:'+icsDate(tMS-15*60000),
+    'DTEND:'+icsDate(tMS+15*60000),
+    'SUMMARY:🌙 Moon photography',
+    'DESCRIPTION:'+desc,
+    'LOCATION:'+curLa.toFixed(5)+','+curLo.toFixed(5),
+    'URL:'+shotURL,
+    'END:VEVENT','END:VCALENDAR',
+  ].join('\r\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([ics],{type:'text/calendar'}));
+  a.download='moon-photo.ics';a.click();
+  URL.revokeObjectURL(a.href);
+};
+
 // ── Info overlay ──────────────────────────────────────────────────────────────
 function updateInfoBox(la,lo,oe,dist,mm){
-  const [mAlt,mAz,mIllum,sAlt,tStr]=mm;
+  const [mAlt,mAz,mIllum,sAlt,,tStr]=mm;
   document.getElementById('pv-infobox').textContent=[
     '\u{1F550} '+tStr, '',
     '\u{1F4CD} Observer',
@@ -497,8 +543,11 @@ function moonAltAzJS(lat,lon,elevM,utcStr){
   const sunHA=((GMST*15+lon-sunRA/DEG)%360+360)%360*DEG;
   const ssinAlt=Math.sin(latr)*Math.sin(sunDec)+Math.cos(latr)*Math.cos(sunDec)*Math.cos(sunHA);
   const sunAltDeg=Math.asin(Math.max(-1,Math.min(1,ssinAlt)))/DEG;
+  const sunAzRad=Math.atan2(-Math.cos(sunDec)*Math.sin(sunHA),
+                             Math.sin(sunDec)*Math.cos(latr)-Math.cos(sunDec)*Math.cos(sunHA)*Math.sin(latr));
+  const sunAzDeg=((sunAzRad/DEG)%360+360)%360;
   const cosElong=Math.sin(sunDec)*Math.sin(dec)+Math.cos(sunDec)*Math.cos(dec)*Math.cos(sunRA-ra);
-  return{altDeg,azDeg,illPct:(1-cosElong)/2*100,sunAltDeg};
+  return{altDeg,azDeg,illPct:(1-cosElong)/2*100,sunAltDeg,sunAzDeg};
 }
 
 // ── Shadow tip (terrain ray-march) ────────────────────────────────────────────
@@ -526,6 +575,36 @@ function computeShadowTip(moonAltDeg,moonAzDeg){
   const flatD=CONFIG.objH/tanAlt;
   return[CONFIG.objLat+flatD*cosAz/(R*DEG),
          CONFIG.objLon+flatD*sinAz/(R*cosLat*DEG)];
+}
+
+// ── URL state ─────────────────────────────────────────────────────────────────
+const LUNA_BASE='https://tim0s.github.io/Luna/';
+function _urlParams(extra){
+  const p=new URLSearchParams();
+  p.set('lat',CONFIG.objLat.toFixed(6));
+  p.set('lon',CONFIG.objLon.toFixed(6));
+  p.set('h',CONFIG.objH);
+  if(CONFIG.objW)p.set('w',CONFIG.objW);
+  p.set('step',CONFIG.stepH);
+  p.set('minAlt',CONFIG.minAltDeg);
+  p.set('minDist',CONFIG.minDistM);
+  p.set('maxSun',CONFIG.maxSunAltDeg);
+  p.set('minIllum',CONFIG.minMoonIllumPct);
+  if(CONFIG.timezone&&CONFIG.timezone!=='local')p.set('tz',CONFIG.timezone);
+  Object.entries(extra||{}).forEach(([k,v])=>p.set(k,v));
+  return p;
+}
+function syncURL(){
+  const p=_urlParams();
+  p.set('start',CONFIG.startISO.slice(0,10));
+  p.set('end',CONFIG.endISO.slice(0,10));
+  history.replaceState(null,'','#'+p.toString());
+}
+function buildShotURL(sLat,sLon,tMS){
+  const d0=new Date(tMS-2*86400000).toISOString().slice(0,10);
+  const d1=new Date(tMS+2*86400000).toISOString().slice(0,10);
+  const p=_urlParams({start:d0,end:d1,shot:tMS,sLat:sLat.toFixed(5),sLon:sLon.toFixed(5)});
+  return LUNA_BASE+'#'+p.toString();
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -589,8 +668,8 @@ function computeMoonMinutes(tMS){
   for(let dm=-15;dm<=15;dm++){
     const ms=tMS+dm*60000;
     const utcStr=msToUtcStr(ms);
-    const{altDeg,azDeg,illPct,sunAltDeg}=moonAltAzJS(CONFIG.objLat,CONFIG.objLon,CONFIG.objElev,utcStr);
-    mins.push([altDeg,azDeg,illPct,sunAltDeg,msToDisplayStr(ms)]);
+    const{altDeg,azDeg,illPct,sunAltDeg,sunAzDeg}=moonAltAzJS(CONFIG.objLat,CONFIG.objLon,CONFIG.objElev,utcStr);
+    mins.push([altDeg,azDeg,illPct,sunAltDeg,sunAzDeg,msToDisplayStr(ms)]);
   }
   return mins;
 }
@@ -624,6 +703,8 @@ function render(la,lo,arrow){
   gl.uniform1f(uL.uHFov,hFov);gl.uniform1f(uL.uVFov,vFov);
   gl.uniform1f(uL.uMoonAz,mm[1]);gl.uniform1f(uL.uMoonAlt,mm[0]);
   gl.uniform1f(uL.uMoonRad,.264);
+  gl.uniform1f(uL.uMoonK,mm[2]/100);
+  gl.uniform1f(uL.uSunAz,mm[4]);gl.uniform1f(uL.uSunAlt,mm[3]);
   gl.uniform1f(uL.uObjAz,caz);gl.uniform1f(uL.uObjElC,oelC);
   gl.uniform1f(uL.uObjHH,ohh);gl.uniform1f(uL.uObjHW,ohw);
   gl.uniform1f(uL.uSkyB,skyB);
@@ -751,7 +832,9 @@ document.getElementById('st-ok').onclick=async()=>{
   CONFIG.maxSunAltDeg   =parseFloat(document.getElementById('st-maxSun').value);
   CONFIG.minMoonIllumPct=parseFloat(document.getElementById('st-minIllum').value);
   CONFIG.timezone=document.getElementById('st-tz').value.trim()||'local';
+  CONFIG._shotMS=null;
   document.getElementById('st-overlay').classList.remove('open');
+  syncURL();
   if(_map){
     _objMarker.setLatLng([CONFIG.objLat,CONFIG.objLon]);
     _map.flyTo([CONFIG.objLat,CONFIG.objLon],_map.getZoom());
@@ -783,12 +866,20 @@ document.getElementById('st-ok').onclick=async()=>{
   const fullEnd  =CONFIG.endISO  .slice(0,10);
   const ds=document.getElementById('df-start'),de=document.getElementById('df-end');
   ds.min=de.min=fullStart;ds.max=de.max=fullEnd;
-  ds.value=fullStart;de.value=fullEnd;
+  // If opened from a shot link, narrow the date filter to ±1 day around the shot
+  if(CONFIG._shotMS){
+    const s=new Date(Math.max(new Date(fullStart),new Date(CONFIG._shotMS-86400000))).toISOString().slice(0,10);
+    const e=new Date(Math.min(new Date(fullEnd),  new Date(CONFIG._shotMS+86400000))).toISOString().slice(0,10);
+    ds.value=s;de.value=e;
+  }else{
+    ds.value=fullStart;de.value=fullEnd;
+  }
+  syncURL();
   document.getElementById('status-badge').textContent='Loading terrain…';
   TERRAIN=await loadTerrain(CONFIG.objLat,CONFIG.objLon);
   CONFIG.objElev=sampleGrid(CONFIG.objLat,CONFIG.objLon);
   updateTitleBar();
-  buildAndRenderArrows(fullStart,fullEnd);
+  buildAndRenderArrows(ds.value,de.value);
   ['df-start','df-end'].forEach(id=>
     document.getElementById(id).addEventListener('input',()=>
       buildAndRenderArrows(

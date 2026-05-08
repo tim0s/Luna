@@ -13,34 +13,50 @@
 <body>
   <div id="map"></div>
   <script>
-    const CONFIG = {
-      objLat:           47.349540,
-      objLon:            8.491359,
-      objH:                    70,   // object height (m)
-      objElev:                  0,   // filled in by JS after terrain loads
-      startISO: "2026-05-01T00:00:00Z",
-      endISO:   "2026-05-31T23:00:00Z",
-      stepH:                  0.5,
-      minAltDeg:                2,
-      minDistM:              1500,
-      maxSunAltDeg:             0,
-      minMoonIllumPct:         30,
-      shadowStepM:            100,
-      mapHalfKm:                5,
-    };
-    const MAP_VAR = 'map';
+    function _isoDay(d){return d.toISOString().slice(0,10);}
+    const _t=new Date(),_t30=new Date(_t);_t30.setDate(_t30.getDate()+30);
 
-    const _R = 6371000;
-    const _dlat = CONFIG.mapHalfKm * 1000 / _R * 180 / Math.PI;
-    const _dlon = CONFIG.mapHalfKm * 1000 / (_R * Math.cos(CONFIG.objLat * Math.PI / 180)) * 180 / Math.PI;
-    var map = L.map('map').fitBounds([
-      [CONFIG.objLat - _dlat, CONFIG.objLon - _dlon],
-      [CONFIG.objLat + _dlat, CONFIG.objLon + _dlon],
-    ], {padding: [40, 40]});
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 20,
+    const CONFIG={
+      objLat:47.349540, objLon:8.491359,
+      objH:70, objElev:0,
+      startISO:_isoDay(_t)+'T00:00:00Z',
+      endISO:_isoDay(_t30)+'T23:00:00Z',
+      stepH:0.5, minAltDeg:2, minDistM:1500,
+      maxSunAltDeg:0, minMoonIllumPct:30,
+      shadowStepM:100, mapHalfKm:5,
+    };
+
+    // Apply URL hash params (allows shareable links for specific shots)
+    (function(){
+      const p=new URLSearchParams(location.hash.slice(1));
+      if(p.has('lat'))     CONFIG.objLat=parseFloat(p.get('lat'));
+      if(p.has('lon'))     CONFIG.objLon=parseFloat(p.get('lon'));
+      if(p.has('h'))       CONFIG.objH=parseFloat(p.get('h'));
+      if(p.has('w'))       CONFIG.objW=parseFloat(p.get('w'));
+      if(p.has('start'))   CONFIG.startISO=p.get('start')+'T00:00:00Z';
+      if(p.has('end'))     CONFIG.endISO=p.get('end')+'T23:00:00Z';
+      if(p.has('step'))    CONFIG.stepH=parseFloat(p.get('step'));
+      if(p.has('minAlt'))  CONFIG.minAltDeg=parseFloat(p.get('minAlt'));
+      if(p.has('minDist')) CONFIG.minDistM=parseFloat(p.get('minDist'));
+      if(p.has('maxSun'))  CONFIG.maxSunAltDeg=parseFloat(p.get('maxSun'));
+      if(p.has('minIllum'))CONFIG.minMoonIllumPct=parseFloat(p.get('minIllum'));
+      if(p.has('tz'))      CONFIG.timezone=p.get('tz');
+      if(p.has('shot'))    CONFIG._shotMS=parseInt(p.get('shot'));
+      if(p.has('sLat'))    CONFIG._shotLat=parseFloat(p.get('sLat'));
+      if(p.has('sLon'))    CONFIG._shotLon=parseFloat(p.get('sLon'));
+    })();
+
+    const MAP_VAR='map';
+    const _R=6371000;
+    const _dlat=CONFIG.mapHalfKm*1000/_R*180/Math.PI;
+    const _dlon=CONFIG.mapHalfKm*1000/(_R*Math.cos(CONFIG.objLat*Math.PI/180))*180/Math.PI;
+    var map=L.map('map').fitBounds([
+      [CONFIG.objLat-_dlat,CONFIG.objLon-_dlon],
+      [CONFIG.objLat+_dlat,CONFIG.objLon+_dlon],
+    ],{padding:[40,40]});
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
+      attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains:'abcd',maxZoom:20,
     }).addTo(map);
   </script>
   <script src="moon_shadow.js"></script>
