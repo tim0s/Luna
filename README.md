@@ -1,14 +1,14 @@
-# Luna — Moon Shadow Tip Mapper
+# Luna — Moon Behind Structures Photography Planner
 
 **Live app: https://tim0s.github.io/Luna/**
 
-Given a tall object (tower, antenna, building) and a time window, Luna computes where the tip of its moon shadow falls on the ground for every qualifying night-time moment — and shows you the results on an interactive map.
+Luna helps photographers find the best spots and moments to capture the moon rising or setting behind buildings, towers, antennas, or other structures. Given a tall object and a time window, it computes where you need to stand — and when — so that the moon passes directly behind the object, then shows those locations on an interactive map.
 
 ## What it does
 
-Each arrow on the map represents one moment when the moon casts a visible shadow from the object. The arrowhead marks the shadow tip; the arrow direction shows how the tip was moving over ±10 minutes. Arrows are colored on a plasma scale from early (purple) to late (yellow) within the displayed date range.
+Each arrow on the map is a shooting location: stand at the arrowhead at the indicated time and the moon will appear behind the object. The arrow direction shows how the ideal position shifts over ±10 minutes, so you can see how quickly you need to move to track the moon. Arrows are colored on a plasma scale from early (purple) to late (yellow) within the displayed date range.
 
-Click any arrow to open a WebGL scene preview: a simulated view from that ground location looking back toward the object, with the moon visible in the sky. You can step ±15 minutes around the moment, change sensor size and focal length, and toggle landscape/portrait orientation.
+Click any arrow to open a WebGL scene preview: a simulated view from that shooting location looking back toward the object, with the moon positioned in the sky behind it. You can step ±15 minutes around the moment, change sensor size and focal length, and toggle landscape/portrait orientation to plan your framing before you head out.
 
 ## How it works
 
@@ -18,8 +18,8 @@ Moon altitude and azimuth are calculated using the full Meeus *Astronomical Algo
 ### Terrain
 Elevation data is loaded on-demand from [AWS Terrarium tiles](https://registry.opendata.aws/terrain-tiles/) at zoom 12 (~10 m/px). The raw RGB-encoded elevation values are decoded and stored in a floating-point grid, then sampled via bicubic Catmull-Rom interpolation for smooth results.
 
-### Shadow ray-march
-For each qualifying timestamp, the code traces a ray from the top of the object in the anti-moon direction. It steps outward at configurable intervals and checks whether the ray height drops below the terrain surface. The intersection is refined with linear interpolation to find the shadow tip position.
+### Shooting location calculation
+For each qualifying timestamp, the code traces a ray from the top of the object in the anti-moon direction. It steps outward at configurable intervals and checks whether the ray height drops below the terrain surface. The intersection point — where the moon shadow tip falls — is the location you stand to photograph the moon directly behind the structure. The intersection is refined with linear interpolation for accuracy.
 
 ### Scene preview (WebGL)
 The preview is rendered with a WebGL fragment shader that:
@@ -28,11 +28,11 @@ The preview is rendered with a WebGL fragment shader that:
 - Adjusts sky brightness based on sun altitude (night → deep blue / day → pale)
 
 ### Filters
-Only moments that pass all of the following are shown:
+Only moments that pass all of the following are shown — these help ensure the shot is actually worth taking:
 - Moon altitude above a minimum (default 2°)
-- Sun altitude below a maximum (default 0° — sun must be below the horizon)
-- Moon illumination above a minimum (default 30%)
-- Shadow tip within the map area and beyond a minimum distance from the object
+- Sun altitude below a maximum (default 0° — sun must be below the horizon for a dark sky)
+- Moon illumination above a minimum (default 30% — thin crescents are hard to photograph)
+- Shooting location within the map area and beyond a minimum distance from the object
 
 ## Settings
 
@@ -45,7 +45,7 @@ Click the ⚙ button to change:
 | Start / End | Time window to scan |
 | Step | Time resolution in hours |
 | Min moon altitude | Reject moments when moon is too low |
-| Min distance | Reject tips too close to the object |
+| Min distance | Reject shooting locations too close to the object |
 | Max sun altitude | Reject moments when it is not dark enough |
 | Min moon illum % | Reject thin crescents |
 | Timezone | Display timezone for timestamps (IANA name or `local`) |
