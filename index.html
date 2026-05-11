@@ -26,24 +26,59 @@
       shadowStepM:100, mapHalfKm:5,
     };
 
-    // Apply URL hash params (allows shareable links for specific shots)
+    // Apply URL hash params (allows shareable links for specific shots).
+    // Supports both new binary+base64 format and legacy key=value format.
     (function(){
-      const p=new URLSearchParams(location.hash.slice(1));
-      if(p.has('lat'))     CONFIG.objLat=parseFloat(p.get('lat'));
-      if(p.has('lon'))     CONFIG.objLon=parseFloat(p.get('lon'));
-      if(p.has('h'))       CONFIG.objH=parseFloat(p.get('h'));
-      if(p.has('w'))       CONFIG.objW=parseFloat(p.get('w'));
-      if(p.has('start'))   CONFIG.startISO=p.get('start')+'T00:00:00Z';
-      if(p.has('end'))     CONFIG.endISO=p.get('end')+'T23:00:00Z';
-      if(p.has('step'))    CONFIG.stepH=parseFloat(p.get('step'));
-      if(p.has('minAlt'))  CONFIG.minAltDeg=parseFloat(p.get('minAlt'));
-      if(p.has('minDist')) CONFIG.minDistM=parseFloat(p.get('minDist'));
-      if(p.has('maxSun'))  CONFIG.maxSunAltDeg=parseFloat(p.get('maxSun'));
-      if(p.has('minIllum'))CONFIG.minMoonIllumPct=parseFloat(p.get('minIllum'));
-      if(p.has('tz'))      CONFIG.timezone=p.get('tz');
-      if(p.has('shot'))    CONFIG._shotMS=parseInt(p.get('shot'));
-      if(p.has('sLat'))    CONFIG._shotLat=parseFloat(p.get('sLat'));
-      if(p.has('sLon'))    CONFIG._shotLon=parseFloat(p.get('sLon'));
+      const h=location.hash.slice(1);
+      if(!h)return;
+      if(h.includes('=')){
+        // Legacy key=value format — kept for backward compatibility
+        const p=new URLSearchParams(h);
+        if(p.has('lat'))     CONFIG.objLat=parseFloat(p.get('lat'));
+        if(p.has('lon'))     CONFIG.objLon=parseFloat(p.get('lon'));
+        if(p.has('h'))       CONFIG.objH=parseFloat(p.get('h'));
+        if(p.has('w'))       CONFIG.objW=parseFloat(p.get('w'));
+        if(p.has('start'))   CONFIG.startISO=p.get('start')+'T00:00:00Z';
+        if(p.has('end'))     CONFIG.endISO=p.get('end')+'T23:00:00Z';
+        if(p.has('step'))    CONFIG.stepH=parseFloat(p.get('step'));
+        if(p.has('minAlt'))  CONFIG.minAltDeg=parseFloat(p.get('minAlt'));
+        if(p.has('minDist')) CONFIG.minDistM=parseFloat(p.get('minDist'));
+        if(p.has('maxSun'))  CONFIG.maxSunAltDeg=parseFloat(p.get('maxSun'));
+        if(p.has('minIllum'))CONFIG.minMoonIllumPct=parseFloat(p.get('minIllum'));
+        if(p.has('tz'))      CONFIG.timezone=p.get('tz');
+        if(p.has('shot'))    CONFIG._shotMS=parseInt(p.get('shot'));
+        if(p.has('sLat'))    CONFIG._shotLat=parseFloat(p.get('sLat'));
+        if(p.has('sLon'))    CONFIG._shotLon=parseFloat(p.get('sLon'));
+        return;
+      }
+      // New binary+base64 format: base64url[.IANA_timezone]
+      const dot=h.indexOf('.');
+      const b64=dot===-1?h:h.slice(0,dot);
+      const tz =dot===-1?null:h.slice(dot+1);
+      try{
+        const bin=atob(b64.replace(/-/g,'+').replace(/_/g,'/'));
+        const buf=Uint8Array.from(bin,c=>c.charCodeAt(0)).buffer;
+        const v=new DataView(buf);
+        const EPOCH=Date.UTC(2000,0,1);
+        function dayToISO(d){return new Date(EPOCH+d*86400000).toISOString().slice(0,10);}
+        CONFIG.objLat          =v.getInt32(0) /1e6;
+        CONFIG.objLon          =v.getInt32(4) /1e6;
+        CONFIG.objH            =v.getUint16(8);
+        const w=v.getUint16(10); if(w)CONFIG.objW=w;
+        CONFIG.stepH           =v.getUint8(12)/4;
+        CONFIG.minAltDeg       =v.getInt8(13) /2;
+        CONFIG.minDistM        =v.getUint16(14);
+        CONFIG.maxSunAltDeg    =v.getInt8(16) /2;
+        CONFIG.minMoonIllumPct =v.getUint8(17);
+        CONFIG.startISO        =dayToISO(v.getUint16(18))+'T00:00:00Z';
+        CONFIG.endISO          =dayToISO(v.getUint16(20))+'T23:00:00Z';
+        if(tz)CONFIG.timezone=tz;
+        if(buf.byteLength>=34){
+          CONFIG._shotLat=v.getInt32(22)/1e5;
+          CONFIG._shotLon=v.getInt32(26)/1e5;
+          CONFIG._shotMS =v.getUint32(30)*1000;
+        }
+      }catch(e){}
     })();
 
     const MAP_VAR='map';

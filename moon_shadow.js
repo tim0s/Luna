@@ -31,10 +31,13 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 #pv-info{padding:4px 12px 6px;background:#f8fafc;color:#94a3b8;
   font:11px sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   border-top:1px solid #e2e8f0;}
-#title-bar{position:fixed;top:10px;left:50%;transform:translateX(-50%);
-  z-index:9999;background:rgba(255,255,255,.88);padding:6px 12px;
-  border-radius:6px;box-shadow:1px 1px 4px rgba(0,0,0,.3);
-  font-family:sans-serif;font-size:12px;text-align:center;pointer-events:none;}
+#settings-hint{position:fixed;top:10px;right:52px;z-index:9999;
+  background:rgba(30,41,59,.9);color:#fff;padding:7px 12px;
+  border-radius:6px;font-family:sans-serif;font-size:13px;cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,.35);white-space:nowrap;}
+#settings-hint::after{content:'';position:absolute;top:50%;right:-8px;
+  transform:translateY(-50%);border:5px solid transparent;
+  border-left-color:rgba(30,41,59,.9);}
 #df-bar{position:fixed;top:55px;left:50%;transform:translateX(-50%);
   z-index:9998;background:rgba(255,255,255,.92);padding:5px 14px;
   border-radius:6px;box-shadow:1px 1px 4px rgba(0,0,0,.3);
@@ -70,11 +73,20 @@ document.head.insertAdjacentHTML('beforeend', `<style>
   border-radius:4px;padding:5px 16px;cursor:pointer;font-size:13px;}
 #st-footer button:hover{background:#2563eb;}
 #st-cancel{background:#e2e8f0!important;color:#475569!important;}
+@media(max-width:600px){
+  #df-bar{display:none!important;}
+  #settings-btn{padding:10px 14px;font-size:20px;}
+  #st-overlay{align-items:flex-start;}
+  #st-box{width:100vw;max-width:100vw;height:100dvh;border-radius:0;
+    overflow-y:auto;padding:16px;box-sizing:border-box;}
+  .st-grid{grid-template-columns:1fr;}
+  #pv-box{width:100vw!important;height:100dvh!important;border-radius:0!important;}
+}
 </style>`);
 
 // ── Inject modal HTML ─────────────────────────────────────────────────────────
 document.body.insertAdjacentHTML('beforeend', `
-<div id="title-bar"></div>
+<div id="settings-hint">⚙ Change Settings here</div>
 <div id="df-bar">
  <span>Show:</span>
  <input type="date" id="df-start">
@@ -358,16 +370,6 @@ function uploadSL(sl){
 let portrait=false,lastArgs=null;
 let curOffset=0,curArrow=null,curLa=0,curLo=0;
 
-function updateTitleBar(){
-  const c=CONFIG;
-  const s=c.startISO.slice(0,10),e=c.endISO.slice(0,10);
-  document.getElementById('title-bar').innerHTML=
-    `Moon shadow tips &nbsp;|&nbsp; ${c.objLat.toFixed(5)}&deg;N, ${c.objLon.toFixed(5)}&deg;E &nbsp;|&nbsp; H = ${c.objH} m<br>`+
-    `${s} &ndash; ${e} &nbsp;&middot;&nbsp; &Delta;t = ${c.stepH} h &nbsp;&middot;&nbsp;`+
-    ` min moon alt = ${c.minAltDeg}&deg; &nbsp;&middot;&nbsp;`+
-    ` max sun alt = ${c.maxSunAltDeg}&deg; &nbsp;&middot;&nbsp;`+
-    ` min moon illum = ${c.minMoonIllumPct}%`;
-}
 function updateNavUI(){
   document.getElementById('pv-prev').disabled=(curOffset<=-15);
   document.getElementById('pv-next').disabled=(curOffset>=15);
@@ -578,33 +580,55 @@ function computeShadowTip(moonAltDeg,moonAzDeg){
 }
 
 // ── URL state ─────────────────────────────────────────────────────────────────
+// Binary layout (22 bytes base, +12 for shot links):
+//   0-3  int32  lat  × 1e6       4-7  int32  lon  × 1e6
+//   8-9  uint16 h(m)             10-11 uint16 w(m)
+//   12   uint8  step × 4         13   int8   minAlt × 2
+//   14-15 uint16 minDist(m)      16   int8   maxSun × 2
+//   17   uint8  minIllum         18-19 uint16 start(days since 2000-01-01)
+//   20-21 uint16 end(days)       [22-25 int32 sLat×1e5  26-29 int32 sLon×1e5
+//                                  30-33 uint32 shot(Unix s)]
+// Timezone appended as ".IANA_name" when non-default.
 const LUNA_BASE='https://tim0s.github.io/Luna/';
-function _urlParams(extra){
-  const p=new URLSearchParams();
-  p.set('lat',CONFIG.objLat.toFixed(6));
-  p.set('lon',CONFIG.objLon.toFixed(6));
-  p.set('h',CONFIG.objH);
-  if(CONFIG.objW)p.set('w',CONFIG.objW);
-  p.set('step',CONFIG.stepH);
-  p.set('minAlt',CONFIG.minAltDeg);
-  p.set('minDist',CONFIG.minDistM);
-  p.set('maxSun',CONFIG.maxSunAltDeg);
-  p.set('minIllum',CONFIG.minMoonIllumPct);
-  if(CONFIG.timezone&&CONFIG.timezone!=='local')p.set('tz',CONFIG.timezone);
-  Object.entries(extra||{}).forEach(([k,v])=>p.set(k,v));
-  return p;
+const _EPOCH=Date.UTC(2000,0,1);
+function _encodeHash(extra){
+  const C=CONFIG,hasShot=extra&&extra.shot!=null;
+  const buf=new ArrayBuffer(hasShot?34:22);
+  const v=new DataView(buf);
+  const startMS=new Date(extra&&extra.startISO||C.startISO).getTime();
+  const endMS  =new Date(extra&&extra.endISO  ||C.endISO  ).getTime();
+  v.setInt32(0,  Math.round(C.objLat*1e6));
+  v.setInt32(4,  Math.round(C.objLon*1e6));
+  v.setUint16(8, C.objH||0);
+  v.setUint16(10,C.objW||0);
+  v.setUint8(12, Math.round(C.stepH*4));
+  v.setInt8(13,  Math.round(C.minAltDeg*2));
+  v.setUint16(14,C.minDistM||0);
+  v.setInt8(16,  Math.round(C.maxSunAltDeg*2));
+  v.setUint8(17, C.minMoonIllumPct||0);
+  v.setUint16(18,Math.round((startMS-_EPOCH)/86400000));
+  v.setUint16(20,Math.round((endMS  -_EPOCH)/86400000));
+  if(hasShot){
+    v.setInt32(22, Math.round(extra.sLat*1e5));
+    v.setInt32(26, Math.round(extra.sLon*1e5));
+    v.setUint32(30,Math.floor(extra.shot/1000));
+  }
+  const bytes=new Uint8Array(buf);
+  let bin='';for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);
+  const b64=btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+  const tz=(C.timezone&&C.timezone!=='local')?'.'+C.timezone:'';
+  return b64+tz;
 }
 function syncURL(){
-  const p=_urlParams();
-  p.set('start',CONFIG.startISO.slice(0,10));
-  p.set('end',CONFIG.endISO.slice(0,10));
-  history.replaceState(null,'','#'+p.toString());
+  history.replaceState(null,'','#'+_encodeHash());
 }
 function buildShotURL(sLat,sLon,tMS){
   const d0=new Date(tMS-2*86400000).toISOString().slice(0,10);
   const d1=new Date(tMS+2*86400000).toISOString().slice(0,10);
-  const p=_urlParams({start:d0,end:d1,shot:tMS,sLat:sLat.toFixed(5),sLon:sLon.toFixed(5)});
-  return LUNA_BASE+'#'+p.toString();
+  return LUNA_BASE+'#'+_encodeHash({
+    startISO:d0+'T00:00:00Z',endISO:d1+'T23:00:00Z',
+    sLat,sLon,shot:tMS
+  });
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -794,6 +818,15 @@ function buildAndRenderArrows(startDate,endDate){
   },10);
 }
 
+// ── Settings hint (first-load callout) ────────────────────────────────────────
+(function(){
+  const hint=document.getElementById('settings-hint');
+  if(localStorage.getItem('luna-hint-seen')){hint.style.display='none';return;}
+  function dismiss(){hint.style.display='none';localStorage.setItem('luna-hint-seen','1');}
+  hint.addEventListener('click',dismiss);
+  document.getElementById('settings-btn').addEventListener('click',dismiss,{once:true});
+})();
+
 // ── Settings modal ────────────────────────────────────────────────────────────
 if(!CONFIG.objW)CONFIG.objW=5;
 if(!CONFIG.timezone)CONFIG.timezone='local';
@@ -844,7 +877,7 @@ document.getElementById('st-ok').onclick=async()=>{
     TERRAIN=await loadTerrain(CONFIG.objLat,CONFIG.objLon);
   }
   CONFIG.objElev=sampleGrid(CONFIG.objLat,CONFIG.objLon);
-  updateTitleBar();
+
   const fullStart=CONFIG.startISO.slice(0,10);
   const fullEnd  =CONFIG.endISO  .slice(0,10);
   const ds=document.getElementById('df-start'),de=document.getElementById('df-end');
@@ -878,7 +911,7 @@ document.getElementById('st-ok').onclick=async()=>{
   document.getElementById('status-badge').textContent='Loading terrain…';
   TERRAIN=await loadTerrain(CONFIG.objLat,CONFIG.objLon);
   CONFIG.objElev=sampleGrid(CONFIG.objLat,CONFIG.objLon);
-  updateTitleBar();
+
   buildAndRenderArrows(ds.value,de.value);
   ['df-start','df-end'].forEach(id=>
     document.getElementById(id).addEventListener('input',()=>
