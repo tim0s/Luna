@@ -57,7 +57,7 @@ The date filter bar at the top of the map lets you narrow the displayed arrows w
 ## Tech stack
 
 - [Leaflet](https://leafletjs.com/) for the map
-- [CARTO light basemap](https://carto.com/basemaps/) tiles
+- [Esri Light Gray Canvas](https://www.arcgis.com/home/item.html?id=8b3d38c0819547faa83f7b7aca80bd76) basemap tiles
 - [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Terrarium format) for elevation
 - WebGL (via `canvas.getContext('webgl')`) for the scene preview
 - No build step — plain HTML + JS, runs entirely in the browser
