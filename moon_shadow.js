@@ -168,7 +168,7 @@ document.body.insertAdjacentHTML('beforeend', `
    <button id="pv-ics">&#x1F4C5; Calendar</button>
    <button id="pv-close">&#x2715; Close</button>
   </div>
-  <div id="pv-info">Click a shaded zone on the map to preview the scene from that location.</div>
+  <div id="pv-info">Click an arrow on the map to preview the scene from that location.</div>
  </div>
 </div>`);
 
@@ -552,58 +552,31 @@ function moonAltAzJS(lat,lon,elevM,utcStr){
   return{altDeg,azDeg,illPct:(1-cosElong)/2*100,sunAltDeg,sunAzDeg};
 }
 
-// ── Shooting zone (terrain ray-march + width) ─────────────────────────────────
-// The moon doesn't have to align with the exact top of the object to be
-// "behind" it, and it doesn't have to be dead-center on the object either —
-// any overlap between the moon's disc and the object's silhouette counts.
-// Standing closer than the tip-alignment distance keeps the moon hidden
-// behind the object's body (apparent height grows as you approach); standing
-// off the direct line still works as long as the moon's edge still touches
-// the object's width. This returns the shooting-zone quadrilateral
-// [nearLeft, farLeft, farRight, nearRight], or null if there's no valid zone
-// (e.g. the tip-alignment distance is closer than the minimum distance).
-const MOON_RADIUS_DEG=0.26; // apparent angular radius of the moon
-function computeShootingZone(moonAltDeg,moonAzDeg){
+// ── Shadow tip (terrain ray-march) ────────────────────────────────────────────
+function computeShadowTip(moonAltDeg,moonAzDeg){
   const DEG=Math.PI/180,R=6371000;
   if(moonAltDeg<=0)return null;
+  const tanAlt=Math.tan(moonAltDeg*DEG);
   const shadowAzRad=((moonAzDeg+180)%360)*DEG;
+  const sinAz=Math.sin(shadowAzRad),cosAz=Math.cos(shadowAzRad);
   const cosLat=Math.cos(CONFIG.objLat*DEG);
-  function toLatLon(d,azOffsetDeg){
-    const az=shadowAzRad+azOffsetDeg*DEG;
-    return[CONFIG.objLat+d*Math.cos(az)/(R*DEG),
-           CONFIG.objLon+d*Math.sin(az)/(R*cosLat*DEG)];
-  }
-  // Far edge: the moon's lower limb (center minus its angular radius) must
-  // not rise above the object's tip — this is the farthest valid distance,
-  // found the same way as before (terrain ray-march along the center line).
-  const effAlt=Math.max(moonAltDeg-MOON_RADIUS_DEG,0.05);
-  const tanAlt=Math.tan(effAlt*DEG);
   const rayAlt0=CONFIG.objElev+CONFIG.objH;
   const maxD=(rayAlt0/tanAlt)*1.5;
-  let prevD=0,prevGap=CONFIG.objH,farD=CONFIG.objH/tanAlt;
+  let prevD=0,prevGap=CONFIG.objH;
   for(let d=CONFIG.shadowStepM;d<=maxD;d+=CONFIG.shadowStepM){
-    const lat=CONFIG.objLat+d*Math.cos(shadowAzRad)/(R*DEG);
-    const lon=CONFIG.objLon+d*Math.sin(shadowAzRad)/(R*cosLat*DEG);
+    const lat=CONFIG.objLat+d*cosAz/(R*DEG);
+    const lon=CONFIG.objLon+d*sinAz/(R*cosLat*DEG);
     const gap=(rayAlt0-d*tanAlt)-sampleGrid(lat,lon);
     if(gap<=0){
-      const t=prevGap/(prevGap-gap);
-      farD=prevD+t*CONFIG.shadowStepM;
-      break;
+      const t=prevGap/(prevGap-gap),hitD=prevD+t*CONFIG.shadowStepM;
+      return[CONFIG.objLat+hitD*cosAz/(R*DEG),
+             CONFIG.objLon+hitD*sinAz/(R*cosLat*DEG)];
     }
     prevD=d;prevGap=gap;
   }
-  const nearD=CONFIG.minDistM;
-  if(nearD>=farD)return null;
-  // Azimuthal half-width: the object's own angular half-width from that
-  // distance, widened by the moon's angular radius so a grazing edge still
-  // counts, not just full containment.
-  const halfAz=d=>Math.atan((CONFIG.objW/2)/d)/DEG+MOON_RADIUS_DEG;
-  return[
-    toLatLon(nearD,-halfAz(nearD)),
-    toLatLon(farD, -halfAz(farD)),
-    toLatLon(farD,  halfAz(farD)),
-    toLatLon(nearD, halfAz(nearD)),
-  ];
+  const flatD=CONFIG.objH/tanAlt;
+  return[CONFIG.objLat+flatD*cosAz/(R*DEG),
+         CONFIG.objLon+flatD*sinAz/(R*cosLat*DEG)];
 }
 
 // ── URL state ─────────────────────────────────────────────────────────────────
@@ -794,12 +767,11 @@ function clearArrows(){
   });
   arrowLayers.length=0;
 }
-function addArrow(zone){
-  const poly=L.polygon(zone.poly,{color:zone.color,weight:1,opacity:.8,
-      fillColor:zone.color,fillOpacity:.35})
-    .on('click',e=>{L.DomEvent.stop(e);openPreview(e.latlng.lat,e.latlng.lng,zone);})
+function addArrow(arrow){
+  const line=L.polyline(arrow.pts,{color:arrow.color,weight:2.5,opacity:.85})
+    .on('click',e=>{L.DomEvent.stop(e);openPreview(e.latlng.lat,e.latlng.lng,arrow);})
     .addTo(_map);
-  arrowLayers.push({line:poly,mkr:null});
+  arrowLayers.push({line,mkr:null});
 }
 function buildAndRenderArrows(startDate,endDate){
   clearArrows();
@@ -821,20 +793,28 @@ function buildAndRenderArrows(startDate,endDate){
         moonAltAzJS(CONFIG.objLat,CONFIG.objLon,CONFIG.objElev,utcStr);
       if(altDeg<CONFIG.minAltDeg||sunAltDeg>CONFIG.maxSunAltDeg
          ||illPct<CONFIG.minMoonIllumPct)continue;
-      const poly=computeShootingZone(altDeg,azDeg);
-      if(!poly)continue;
-      const near=[(poly[0][0]+poly[3][0])/2,(poly[0][1]+poly[3][1])/2];
-      if(Math.abs(near[0]-CONFIG.objLat)>halfLat
-         ||Math.abs(near[1]-CONFIG.objLon)>halfLon)continue;
-      results.push({tMS,utcStr,poly});
+      const pts=[-10,-5,0,5,10].map(dm=>{
+        const s=msToUtcStr(tMS+dm*60000);
+        const{altDeg:a,azDeg:z}=moonAltAzJS(CONFIG.objLat,CONFIG.objLon,CONFIG.objElev,s);
+        return computeShadowTip(a,z);
+      });
+      const pc=pts[2]||pts[0];if(!pc)continue;
+      if(Math.abs(pc[0]-CONFIG.objLat)>halfLat
+         ||Math.abs(pc[1]-CONFIG.objLon)>halfLon)continue;
+      if(haversine(CONFIG.objLat,CONFIG.objLon,pc[0],pc[1])<CONFIG.minDistM)continue;
+      results.push({tMS,utcStr,pts});
     }
     const tSpan=endMS-startMS||1;
     drawColorbar(startMS,endMS);
     results.forEach(r=>{
       const color=plasmaColor((r.tMS-startMS)/tSpan);
-      addArrow({poly:r.poly,color,tMS:r.tMS,tCenter:r.utcStr,moonMinutes:null});
+      const valid=r.pts.filter(p=>p!==null);
+      const p0=r.pts[0],p4=r.pts[4];
+      const pts=(p0&&p4&&haversine(p0[0],p0[1],p4[0],p4[1])>100)
+        ?valid:[p0||valid[0],p4||valid[valid.length-1]];
+      addArrow({pts,color,tMS:r.tMS,tCenter:r.utcStr,moonMinutes:null});
     });
-    document.getElementById('status-badge').textContent=results.length+' zones';
+    document.getElementById('status-badge').textContent=results.length+' arrows';
   },10);
 }
 
