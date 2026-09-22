@@ -2,13 +2,13 @@
 
 **Live app: https://tim0s.github.io/Luna/**
 
-Luna helps photographers find the best spots and moments to capture the moon rising or setting behind buildings, towers, antennas, or other structures. Given a tall object and a time window, it computes where you need to stand — and when — so that the moon passes directly behind the object, then shows those locations on an interactive map.
+Luna helps photographers find the best spots and moments to capture the moon rising or setting behind buildings, towers, antennas, or other structures. Given a tall object and a time window, it computes where you need to stand — and when — so that the moon appears behind the object, then shows the shooting zones on an interactive map.
 
 ## What it does
 
-Each arrow on the map is a shooting location: stand at the arrowhead at the indicated time and the moon will appear behind the object. The arrow direction shows how the ideal position shifts over ±10 minutes, so you can see how quickly you need to move to track the moon. Arrows are colored on a plasma scale from early (purple) to late (yellow) within the displayed date range.
+Each shaded polygon on the map is a shooting zone for one qualifying moment: stand anywhere inside it and some part of the moon will be behind the object. The zone is wider close to the object (where its width covers more of the sky) and narrows with distance, capped at the point where the moon would no longer reach behind the object at all. Zones are colored on a plasma scale from early (purple) to late (yellow) within the displayed date range.
 
-Click any arrow to open a WebGL scene preview: a simulated view from that shooting location looking back toward the object, with the moon rendered in its correct phase behind it. You can step ±15 minutes around the moment, change sensor size and focal length, and toggle landscape/portrait orientation to plan your framing before you head out.
+Click inside any zone to open a WebGL scene preview: a simulated view from that exact spot looking back toward the object, with the moon rendered in its correct phase behind it. You can step ±15 minutes around the moment, change sensor size and focal length, and toggle landscape/portrait orientation to plan your framing before you head out.
 
 From the preview you can download a **calendar entry** (`.ics`) for that specific shot. The 30-minute event includes the shooting coordinates, moon data, and a link back to Luna that reopens the app at the exact object, location, and date — useful for sharing a shot with someone or for finding it again later.
 
@@ -20,8 +20,13 @@ Moon altitude and azimuth are calculated using the full Meeus *Astronomical Algo
 ### Terrain
 Elevation data is loaded on-demand from [AWS Terrarium tiles](https://registry.opendata.aws/terrain-tiles/) at zoom 12 (~10 m/px). The raw RGB-encoded elevation values are decoded and stored in a floating-point grid, then sampled via bicubic Catmull-Rom interpolation for smooth results.
 
-### Shooting location calculation
-For each qualifying timestamp, the code traces a ray from the top of the object in the anti-moon direction. It steps outward at configurable intervals and checks whether the ray height drops below the terrain surface. The intersection point — where the moon shadow tip falls — is the location you stand to photograph the moon directly behind the structure. The intersection is refined with linear interpolation for accuracy.
+### Shooting zone calculation
+Standing at the exact distance where the moon grazes the object's tip is only the outer edge of "behind the object" — any closer distance also keeps the moon hidden behind the object's body, since its apparent height grows as you approach. Any position within the object's angular width works too, not just the exact line to its center. And the moon doesn't need to be fully covered — an edge-on overlap between the moon's disc and the object's silhouette still counts.
+
+For each qualifying timestamp, the code computes this as a quadrilateral:
+- **Far edge**: a ray traced from the top of the object in the anti-moon direction, stepped outward at configurable intervals and checked against the terrain surface (refined with linear interpolation), same as the original tip-alignment calculation — but using the moon's lower limb (its center altitude minus its apparent angular radius, ~0.26°) instead of its center, so the zone extends slightly past pure center-alignment to capture a grazing shot.
+- **Near edge**: the configured minimum distance from the object.
+- **Left/right edges**: the object's angular half-width at each distance (`atan(width/2 / distance)`), also widened by the moon's angular radius.
 
 ### Scene preview (WebGL)
 The preview is rendered with a WebGL fragment shader that:
@@ -34,7 +39,7 @@ Only moments that pass all of the following are shown — these help ensure the 
 - Moon altitude above a minimum (default 2°)
 - Sun altitude below a maximum (default 0° — sun must be below the horizon for a dark sky)
 - Moon illumination above a minimum (default 30% — thin crescents are hard to photograph)
-- Shooting location within the map area and beyond a minimum distance from the object
+- Shooting zone within the map area and beyond a minimum distance from the object
 
 ## Settings
 
@@ -47,12 +52,12 @@ Click the ⚙ button to change:
 | Start / End | Time window to scan |
 | Step | Time resolution in hours |
 | Min moon altitude | Reject moments when moon is too low |
-| Min distance | Reject shooting locations too close to the object |
+| Min distance | Sets the near edge of each shooting zone |
 | Max sun altitude | Reject moments when it is not dark enough |
 | Min moon illum % | Reject thin crescents |
 | Timezone | Display timezone for timestamps (IANA name or `local`) |
 
-The date filter bar at the top of the map lets you narrow the displayed arrows without a full recalculation.
+The date filter bar at the top of the map lets you narrow the displayed zones without a full recalculation.
 
 ## Tech stack
 
