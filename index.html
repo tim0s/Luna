@@ -14,13 +14,13 @@
   <div id="map"></div>
   <script>
     function _isoDay(d){return d.toISOString().slice(0,10);}
-    const _t=new Date(),_t30=new Date(_t);_t30.setDate(_t30.getDate()+30);
+    const _t=new Date(),_t7=new Date(_t);_t7.setDate(_t7.getDate()+7);
 
     const CONFIG={
       objLat:47.349540, objLon:8.491359,
       objH:70, objElev:0,
       startISO:_isoDay(_t)+'T00:00:00Z',
-      endISO:_isoDay(_t30)+'T23:00:00Z',
+      endISO:_isoDay(_t7)+'T23:00:00Z',
       stepH:0.5, minAltDeg:2, minDistM:1500,
       maxSunAltDeg:0, minMoonIllumPct:30,
       shadowStepM:30, mapHalfKm:5,
