@@ -552,17 +552,22 @@ function moonAltAzJS(lat,lon,elevM,utcStr){
   return{altDeg,azDeg,illPct:(1-cosElong)/2*100,sunAltDeg,sunAzDeg};
 }
 
-// ── Shadow tip (terrain ray-march) ────────────────────────────────────────────
-function computeShadowTip(moonAltDeg,moonAzDeg){
+// ── Shadow point (terrain ray-march) ──────────────────────────────────────────
+// Traces a ray from a given fraction of the object's height, in the anti-moon
+// direction (moonAzDeg + 180°), and finds where it meets the terrain — same
+// method as the original tip-only calculation, generalized to any height.
+const MOON_RADIUS_DEG=0.26; // apparent angular radius of the moon
+function computeShadowPoint(moonAltDeg,moonAzDeg,heightFrac){
   const DEG=Math.PI/180,R=6371000;
   if(moonAltDeg<=0)return null;
   const tanAlt=Math.tan(moonAltDeg*DEG);
   const shadowAzRad=((moonAzDeg+180)%360)*DEG;
   const sinAz=Math.sin(shadowAzRad),cosAz=Math.cos(shadowAzRad);
   const cosLat=Math.cos(CONFIG.objLat*DEG);
-  const rayAlt0=CONFIG.objElev+CONFIG.objH;
+  const targetH=CONFIG.objH*heightFrac;
+  const rayAlt0=CONFIG.objElev+targetH;
   const maxD=(rayAlt0/tanAlt)*1.5;
-  let prevD=0,prevGap=CONFIG.objH;
+  let prevD=0,prevGap=targetH;
   for(let d=CONFIG.shadowStepM;d<=maxD;d+=CONFIG.shadowStepM){
     const lat=CONFIG.objLat+d*cosAz/(R*DEG);
     const lon=CONFIG.objLon+d*sinAz/(R*cosLat*DEG);
@@ -574,10 +579,13 @@ function computeShadowTip(moonAltDeg,moonAzDeg){
     }
     prevD=d;prevGap=gap;
   }
-  const flatD=CONFIG.objH/tanAlt;
+  const flatD=targetH/tanAlt;
   return[CONFIG.objLat+flatD*cosAz/(R*DEG),
          CONFIG.objLon+flatD*sinAz/(R*cosLat*DEG)];
 }
+// The ten height levels an object's silhouette is sampled at: 10%-90% plus
+// the original full-height tip.
+const HEIGHT_FRACTIONS=[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0];
 
 // ── URL state ─────────────────────────────────────────────────────────────────
 // Binary layout (22 bytes base, +12 for shot links):
@@ -767,11 +775,26 @@ function clearArrows(){
   });
   arrowLayers.length=0;
 }
-function addArrow(arrow){
-  const line=L.polyline(arrow.pts,{color:arrow.color,weight:2.5,opacity:.85})
-    .on('click',e=>{L.DomEvent.stop(e);openPreview(e.latlng.lat,e.latlng.lng,arrow);})
+function addArrow(zone){
+  const poly=L.polygon(zone.poly,{color:zone.color,weight:.75,opacity:.55,
+      fillColor:zone.color,fillOpacity:.25})
+    .on('click',e=>{L.DomEvent.stop(e);openPreview(e.latlng.lat,e.latlng.lng,zone);})
     .addTo(_map);
-  arrowLayers.push({line,mkr:null});
+  arrowLayers.push({line:poly,mkr:null});
+}
+// Builds the ribbon (a thin polygon) for one height level at one moment: the
+// left-edge track (moon's left limb grazing that height) and the right-edge
+// track (moon's right limb), each swept over the same ±10 minute window,
+// joined into a closed shape. Mirrors the old collapse-if-static behavior:
+// if the drift over 20 minutes is negligible, only the endpoints are used.
+function ribbonPolygon(left,right){
+  const validLeft=left.filter(p=>p!==null),validRight=right.filter(p=>p!==null);
+  if(validLeft.length<2||validRight.length<2)return null;
+  const l0=left[0],l4=left[4];
+  const useFull=l0&&l4&&haversine(l0[0],l0[1],l4[0],l4[1])>100;
+  const L=useFull?validLeft:[validLeft[0],validLeft[validLeft.length-1]];
+  const R=useFull?validRight:[validRight[0],validRight[validRight.length-1]];
+  return[...L,...R.slice().reverse()];
 }
 function buildAndRenderArrows(startDate,endDate){
   clearArrows();
@@ -793,28 +816,44 @@ function buildAndRenderArrows(startDate,endDate){
         moonAltAzJS(CONFIG.objLat,CONFIG.objLon,CONFIG.objElev,utcStr);
       if(altDeg<CONFIG.minAltDeg||sunAltDeg>CONFIG.maxSunAltDeg
          ||illPct<CONFIG.minMoonIllumPct)continue;
-      const pts=[-10,-5,0,5,10].map(dm=>{
+
+      // Moon alt/az across the ±10 minute sweep — shared by every height level.
+      const sweep=[-10,-5,0,5,10].map(dm=>{
         const s=msToUtcStr(tMS+dm*60000);
         const{altDeg:a,azDeg:z}=moonAltAzJS(CONFIG.objLat,CONFIG.objLon,CONFIG.objElev,s);
-        return computeShadowTip(a,z);
+        return{a,z};
       });
-      const pc=pts[2]||pts[0];if(!pc)continue;
+
+      const ribbons=HEIGHT_FRACTIONS.map(hf=>({
+        hf,
+        left: sweep.map(({a,z})=>computeShadowPoint(a,z-MOON_RADIUS_DEG,hf)),
+        right:sweep.map(({a,z})=>computeShadowPoint(a,z+MOON_RADIUS_DEG,hf)),
+      }));
+
+      // Map-bounds / min-distance filtering still keys off the full-height
+      // (tip) track, same reference point the original algorithm used.
+      const tip=ribbons[ribbons.length-1];
+      const pc=tip.left[2]||tip.right[2]||tip.left[0]||tip.right[0];
+      if(!pc)continue;
       if(Math.abs(pc[0]-CONFIG.objLat)>halfLat
          ||Math.abs(pc[1]-CONFIG.objLon)>halfLon)continue;
       if(haversine(CONFIG.objLat,CONFIG.objLon,pc[0],pc[1])<CONFIG.minDistM)continue;
-      results.push({tMS,utcStr,pts});
+
+      results.push({tMS,utcStr,ribbons});
     }
     const tSpan=endMS-startMS||1;
     drawColorbar(startMS,endMS);
+    let shapeCount=0;
     results.forEach(r=>{
       const color=plasmaColor((r.tMS-startMS)/tSpan);
-      const valid=r.pts.filter(p=>p!==null);
-      const p0=r.pts[0],p4=r.pts[4];
-      const pts=(p0&&p4&&haversine(p0[0],p0[1],p4[0],p4[1])>100)
-        ?valid:[p0||valid[0],p4||valid[valid.length-1]];
-      addArrow({pts,color,tMS:r.tMS,tCenter:r.utcStr,moonMinutes:null});
+      r.ribbons.forEach(({left,right})=>{
+        const poly=ribbonPolygon(left,right);
+        if(!poly)return;
+        addArrow({poly,color,tMS:r.tMS,tCenter:r.utcStr,moonMinutes:null});
+        shapeCount++;
+      });
     });
-    document.getElementById('status-badge').textContent=results.length+' arrows';
+    document.getElementById('status-badge').textContent=shapeCount+' shapes ('+results.length+' moments)';
   },10);
 }
 

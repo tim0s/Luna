@@ -6,9 +6,9 @@ Luna helps photographers find the best spots and moments to capture the moon ris
 
 ## What it does
 
-Each arrow on the map is a shooting location: stand at the arrowhead at the indicated time and the moon will appear behind the object. The arrow direction shows how the ideal position shifts over ±10 minutes, so you can see how quickly you need to move to track the moon. Arrows are colored on a plasma scale from early (purple) to late (yellow) within the displayed date range.
+For each qualifying moment, Luna draws ten thin ribbons on the map — one for each tenth of the object's height (10%, 20%, ... up to the full tip) — showing where to stand so the moon appears behind that part of the object. Each ribbon's width is the moon's own apparent width (its left and right edges grazing the object), and its length traces how the ideal position drifts over a ±10 minute window, so you can see how quickly you need to move to track the moon. All the ribbons for one moment share the same color, drawn on a plasma scale from early (purple) to late (yellow) within the displayed date range.
 
-Click any arrow to open a WebGL scene preview: a simulated view from that shooting location looking back toward the object, with the moon rendered in its correct phase behind it. You can step ±15 minutes around the moment, change sensor size and focal length, and toggle landscape/portrait orientation to plan your framing before you head out.
+Click inside any ribbon to open a WebGL scene preview: a simulated view from that shooting location looking back toward the object, with the moon rendered in its correct phase behind it. You can step ±15 minutes around the moment, change sensor size and focal length, and toggle landscape/portrait orientation to plan your framing before you head out.
 
 From the preview you can download a **calendar entry** (`.ics`) for that specific shot. The 30-minute event includes the shooting coordinates, moon data, and a link back to Luna that reopens the app at the exact object, location, and date — useful for sharing a shot with someone or for finding it again later.
 
@@ -21,7 +21,7 @@ Moon altitude and azimuth are calculated using the full Meeus *Astronomical Algo
 Elevation data is loaded on-demand from [AWS Terrarium tiles](https://registry.opendata.aws/terrain-tiles/) at zoom 12 (~10 m/px). The raw RGB-encoded elevation values are decoded and stored in a floating-point grid, then sampled via bicubic Catmull-Rom interpolation for smooth results.
 
 ### Shooting location calculation
-For each qualifying timestamp, the code traces a ray from the top of the object in the anti-moon direction. It steps outward at configurable intervals and checks whether the ray height drops below the terrain surface. The intersection point — where the moon shadow tip falls — is the location you stand to photograph the moon directly behind the structure. The intersection is refined with linear interpolation for accuracy.
+For each qualifying timestamp, the code traces a ray from a given fraction of the object's height (10%–100%) in the anti-moon direction, using the moon's own azimuth shifted by its apparent angular radius (~0.26°) to either side — this gives the left-edge and right-edge tracks that bound a ribbon, rather than a single point. Each ray steps outward in configurable intervals (default 30 m) and checks whether the ray height drops below the terrain surface; the intersection is refined with linear interpolation. Repeating this for ten height fractions gives ten stacked ribbons per moment, each showing where to stand so the moon is behind that specific part of the object.
 
 ### Scene preview (WebGL)
 The preview is rendered with a WebGL fragment shader that:
@@ -52,7 +52,7 @@ Click the ⚙ button to change:
 | Min moon illum % | Reject thin crescents |
 | Timezone | Display timezone for timestamps (IANA name or `local`) |
 
-The date filter bar at the top of the map lets you narrow the displayed arrows without a full recalculation.
+The date filter bar at the top of the map lets you narrow the displayed ribbons without a full recalculation.
 
 ## Tech stack
 
