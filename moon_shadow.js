@@ -80,7 +80,62 @@ document.head.insertAdjacentHTML('beforeend', `<style>
   #st-box{width:100vw;max-width:100vw;height:100dvh;border-radius:0;
     overflow-y:auto;padding:16px;box-sizing:border-box;}
   .st-grid{grid-template-columns:1fr;}
-  #pv-box{width:100vw!important;height:100dvh!important;border-radius:0!important;}
+}
+/* Mobile-only preview elements; .pv-grp wrappers are layout-neutral on desktop */
+#pv-top,#pv-chip,#pv-details,#pv-time,#pv-cam-toggle,.pv-fchips,#pv-nav{display:none;}
+.pv-grp{display:contents;}
+@media(max-width:600px),(max-height:500px){
+  #pv-overlay{background:#0b1020;align-items:stretch;justify-content:stretch;}
+  #pv-box{width:100vw;height:100dvh;border-radius:0;box-shadow:none;background:#0b1020;}
+  #pv-top{display:flex;align-items:center;gap:8px;background:#0f172a;color:#f1f5f9;
+    font:600 15px/1.3 sans-serif;
+    padding:max(6px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right))
+      6px max(14px,env(safe-area-inset-left));}
+  #pv-time-lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #pv-time-lbl small{font-weight:400;color:#94a3b8;margin-left:6px;}
+  #pv-close-m{flex:none;width:44px;height:44px;border:none;border-radius:22px;
+    background:rgba(255,255,255,.14);color:#fff;font-size:20px;cursor:pointer;}
+  #pv-canvaswrap{flex:1 1 0;min-height:0;min-width:0;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;}
+  #pv-infobox,#pv-info,#pv-offset,#pv-info-toggle,#pv-close,.pv-sep,.pv-long{display:none!important;}
+  #pv-chip{display:block;position:absolute;top:8px;left:8px;border:none;border-radius:16px;
+    background:rgba(15,23,42,.78);color:#fff;font:13px/1.2 sans-serif;padding:8px 12px;cursor:pointer;}
+  #pv-ctrl{flex:none;max-height:50dvh;overflow-y:auto;flex-direction:column;
+    align-items:stretch;flex-wrap:nowrap;gap:10px;font-size:15px;
+    padding:10px max(12px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom))
+      max(12px,env(safe-area-inset-left));}
+  #pv-ctrl>*{flex-shrink:0;}
+  #pv-ctrl .pv-grp{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;}
+  #pv-ctrl button,#pv-nav{min-height:44px;min-width:44px;padding:0 14px;font-size:15px;}
+  #pv-ctrl label{font-size:12px;}
+  #pv-ctrl select,#pv-ctrl input[type=number]{font-size:16px;min-height:40px;box-sizing:border-box;}
+  #pv-g-time{order:1;flex-wrap:nowrap!important;align-items:center!important;}
+  #pv-time{display:block;flex:1;min-width:0;height:44px;margin:0;accent-color:#3b82f6;}
+  #pv-details{order:2;white-space:pre;font:12px/1.6 monospace;color:#1e293b;
+    background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;overflow-x:auto;}
+  #pv-ctrl.show-details #pv-details{display:block;}
+  #pv-cam-toggle{display:block;order:3;text-align:left;background:#e2e8f0!important;color:#334155!important;}
+  #pv-g-cam,#pv-g-bright{order:4;}
+  #pv-ctrl:not(.cam-open) #pv-g-cam,#pv-ctrl:not(.cam-open) #pv-g-bright{display:none;}
+  #pv-g-cam label{flex:1 1 100%;}
+  #pv-focal{width:100%!important;}
+  .pv-fchips{display:flex;gap:6px;flex:1;}
+  #pv-ctrl .pv-fchip{flex:1;padding:0;background:#e2e8f0;color:#334155;}
+  #pv-ctrl .pv-fchip.on{background:#3b82f6;color:#fff;}
+  #pv-orient{flex:1 1 100%;}
+  #pv-g-bright label{flex:1;flex-direction:row;font-size:15px!important;}
+  #pv-bright{flex:1;width:auto!important;height:44px;}
+  #pv-g-act{order:5;flex-wrap:nowrap!important;}
+  #pv-ics,#pv-nav{flex:1;}
+  #pv-nav{display:flex;align-items:center;justify-content:center;box-sizing:border-box;
+    background:#16a34a;color:#fff;border-radius:4px;text-decoration:none;font-family:sans-serif;}
+}
+@media(max-height:500px) and (orientation:landscape){
+  #pv-box{display:grid;grid-template-columns:minmax(0,1fr) min(340px,42vw);
+    grid-template-rows:auto minmax(0,1fr);}
+  #pv-canvaswrap{grid-column:1;grid-row:1/3;}
+  #pv-top{grid-column:2;grid-row:1;}
+  #pv-ctrl{grid-column:2;grid-row:2;max-height:none;}
 }
 </style>`);
 
@@ -138,11 +193,18 @@ document.body.insertAdjacentHTML('beforeend', `
 </div>
 <div id="pv-overlay">
  <div id="pv-box">
+  <div id="pv-top">
+   <span id="pv-time-lbl"></span>
+   <button id="pv-close-m" aria-label="Close">&#x2715;</button>
+  </div>
   <div id="pv-canvaswrap">
    <canvas id="pv-canvas" width="800" height="500"></canvas>
    <div id="pv-infobox"></div>
+   <button id="pv-chip"></button>
   </div>
   <div id="pv-ctrl">
+   <button id="pv-cam-toggle">&#x1F4F7; Camera &#x25B8;</button>
+   <div class="pv-grp" id="pv-g-cam">
    <label>Sensor
     <select id="pv-sensor">
      <option value="36,24">Full Frame 36&#xD7;24 mm</option>
@@ -154,19 +216,35 @@ document.body.insertAdjacentHTML('beforeend', `
    <label>Focal length (mm)
     <input id="pv-focal" type="number" value="400" min="10" max="2000" step="10" style="width:65px">
    </label>
+   <span class="pv-fchips">
+    <button class="pv-fchip" data-f="200">200</button>
+    <button class="pv-fchip" data-f="400">400</button>
+    <button class="pv-fchip" data-f="600">600</button>
+    <button class="pv-fchip" data-f="800">800</button>
+   </span>
    <button id="pv-orient">&#x2B1B; Landscape</button>
-   <span style="border-left:1px solid #374151;margin:0 2px;align-self:stretch;"></span>
-   <button id="pv-prev" title="Previous minute">&#x25C4; &#x2212;1 min</button>
+   </div>
+   <span class="pv-sep" style="border-left:1px solid #374151;margin:0 2px;align-self:stretch;"></span>
+   <div class="pv-grp" id="pv-g-time">
+   <button id="pv-prev" title="Previous minute"><span class="pv-long">&#x25C4; </span>&#x2212;1<span class="pv-long"> min</span></button>
+   <input id="pv-time" type="range" min="-15" max="15" step="1" value="0" aria-label="Time offset (minutes)">
    <span id="pv-offset" style="font-size:11px;min-width:40px;text-align:center;color:#9ca3af">&#xB10 min</span>
-   <button id="pv-next" title="Next minute">+1 min &#x25BA;</button>
-   <span style="border-left:1px solid #374151;margin:0 2px;align-self:stretch;"></span>
+   <button id="pv-next" title="Next minute">+1<span class="pv-long"> min &#x25BA;</span></button>
+   </div>
+   <span class="pv-sep" style="border-left:1px solid #374151;margin:0 2px;align-self:stretch;"></span>
+   <div class="pv-grp" id="pv-g-bright">
    <label style="font-size:11px;color:#9ca3af;display:flex;align-items:center;gap:4px">&#x2600;&#xFE0F;
     <input id="pv-bright" type="range" min="1" max="4" value="1" step="0.1" style="width:80px;accent-color:#f59e0b">
     <span id="pv-bright-val" style="min-width:28px">&#xD7;1</span>
    </label>
+   </div>
+   <div id="pv-details"></div>
+   <div class="pv-grp" id="pv-g-act">
    <button id="pv-info-toggle" style="margin-left:auto">&#x2139; Hide info</button>
    <button id="pv-ics">&#x1F4C5; Calendar</button>
+   <a id="pv-nav" target="_blank" rel="noopener">&#x1F4CD; Navigate</a>
    <button id="pv-close">&#x2715; Close</button>
+   </div>
   </div>
   <div id="pv-info">Click an arrow on the map to preview the scene from that location.</div>
  </div>
@@ -370,20 +448,64 @@ function uploadSL(sl){
 let portrait=false,lastArgs=null;
 let curOffset=0,curArrow=null,curLa=0,curLo=0;
 
+const MOBILE_MQ=window.matchMedia('(max-width:600px),(max-height:500px)');
+function isMobile(){return MOBILE_MQ.matches;}
+function offsetStr(){
+  return curOffset===0?'\xB10 min':(curOffset>0?'+'+curOffset+' min':curOffset+' min');
+}
 function updateNavUI(){
   document.getElementById('pv-prev').disabled=(curOffset<=-15);
   document.getElementById('pv-next').disabled=(curOffset>=15);
-  document.getElementById('pv-offset').textContent=
-    curOffset===0?'\xB10 min':(curOffset>0?'+'+curOffset+' min':curOffset+' min');
+  document.getElementById('pv-offset').textContent=offsetStr();
+  document.getElementById('pv-time').value=curOffset;
 }
-document.getElementById('pv-prev').onclick=function(){
-  if(curOffset>-15){curOffset--;render(curLa,curLo,curArrow);}
-};
-document.getElementById('pv-next').onclick=function(){
-  if(curOffset<15){curOffset++;render(curLa,curLo,curArrow);}
-};
+function setOffset(n){
+  n=Math.max(-15,Math.min(15,n));
+  if(n!==curOffset){curOffset=n;render(curLa,curLo,curArrow);}
+}
+document.getElementById('pv-prev').onclick=()=>setOffset(curOffset-1);
+document.getElementById('pv-next').onclick=()=>setOffset(curOffset+1);
+document.getElementById('pv-time').addEventListener('input',function(){
+  setOffset(parseInt(this.value));
+});
+// The desktop side-panel portrait layout doesn't fit a phone; there portrait
+// just makes the canvas taller.
 function applyPortraitClass(){
-  document.getElementById('pv-overlay').classList.toggle('portrait',portrait);
+  document.getElementById('pv-overlay').classList.toggle('portrait',portrait&&!isMobile());
+}
+document.getElementById('pv-chip').onclick=()=>
+  document.getElementById('pv-ctrl').classList.toggle('show-details');
+document.getElementById('pv-cam-toggle').onclick=function(){
+  const open=document.getElementById('pv-ctrl').classList.toggle('cam-open');
+  this.textContent='\u{1F4F7} Camera '+(open?'▾':'▸');
+};
+function updateFocalChips(){
+  const f=document.getElementById('pv-focal').value;
+  document.querySelectorAll('.pv-fchip').forEach(b=>b.classList.toggle('on',b.dataset.f===f));
+}
+document.querySelectorAll('.pv-fchip').forEach(b=>b.onclick=function(){
+  document.getElementById('pv-focal').value=this.dataset.f;
+  if(lastArgs)render(...lastArgs);
+});
+// Re-fit the canvas when the phone rotates or the control panel grows/shrinks.
+let _resizeRAF=0;
+function onPreviewResize(){
+  if(_resizeRAF)return;
+  _resizeRAF=requestAnimationFrame(()=>{
+    _resizeRAF=0;
+    if(!lastArgs||!document.getElementById('pv-overlay').classList.contains('open'))return;
+    applyPortraitClass();
+    render(...lastArgs);
+  });
+}
+window.addEventListener('resize',onPreviewResize);
+if(window.ResizeObserver)
+  new ResizeObserver(onPreviewResize).observe(document.getElementById('pv-canvaswrap'));
+function navURL(la,lo){
+  const ios=/iP(hone|ad|od)/.test(navigator.userAgent)||
+    (navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  return ios?'https://maps.apple.com/?daddr='+la+','+lo:
+    'https://www.google.com/maps/dir/?api=1&destination='+la+','+lo;
 }
 document.getElementById('pv-orient').onclick=function(){
   portrait=!portrait;
@@ -405,7 +527,8 @@ document.getElementById('pv-bright').addEventListener('input',function(){
   document.getElementById('pv-bright-val').textContent='\xD7'+this.value;
   if(lastArgs)render(...lastArgs);
 });
-document.getElementById('pv-close').onclick=()=>
+document.getElementById('pv-close').onclick=
+document.getElementById('pv-close-m').onclick=()=>
   document.getElementById('pv-overlay').classList.remove('open');
 
 document.getElementById('pv-ics').onclick=function(){
@@ -460,6 +583,21 @@ function updateInfoBox(la,lo,oe,dist,mm){
     '   azimuth   '+mAz.toFixed(2)+'\xB0',
     '   illum.    '+mIllum.toFixed(1)+'%', '',
     '☀️ Sun altitude  '+sAlt.toFixed(2)+'\xB0',
+  ].join('\n');
+  // Mobile: time in the top bar, a one-line summary chip over the canvas, and
+  // the details (minus the already-known object position) below the canvas.
+  const lbl=document.getElementById('pv-time-lbl');
+  lbl.textContent=tStr;
+  lbl.insertAdjacentHTML('beforeend','<small>'+offsetStr()+'</small>');
+  const km=dist>=1000?(dist/1000).toFixed(1)+' km':Math.round(dist)+' m';
+  document.getElementById('pv-chip').textContent=
+    '\u{1F319} '+mAlt.toFixed(1)+'\xB0 \xB7 '+Math.round(mIllum)+'% \xB7 '+km+'  ℹ';
+  document.getElementById('pv-details').textContent=[
+    '\u{1F4CD} You   '+la.toFixed(5)+', '+lo.toFixed(5),
+    '        elev '+Math.round(oe)+' m, '+Math.round(dist)+' m to object',
+    '\u{1F319} Moon  alt '+mAlt.toFixed(2)+'\xB0  az '+mAz.toFixed(2)+'\xB0',
+    '        illum '+mIllum.toFixed(1)+'%',
+    '☀️ Sun   alt '+sAlt.toFixed(2)+'\xB0',
   ].join('\n');
 }
 function getCam(){
@@ -718,11 +856,23 @@ function render(la,lo,arrow){
   const midEl=CONFIG.objElev+CONFIG.objH*.5;
   const cel=Math.atan2(midEl-oe,dist)*180/Math.PI;
   const{hFov,vFov,aspect}=getCam();
-  const maxW=Math.round(portrait?window.innerWidth*.45:Math.min(window.innerWidth*.92,900));
-  const maxH=Math.round(window.innerHeight*.92)-90;
-  const W=Math.min(maxW,Math.round(maxH*aspect));
-  const H=Math.round(W/aspect);
+  const mobile=isMobile();
+  let maxW,maxH,dpr=1;
+  if(mobile){
+    // Fit the space the layout leaves for the canvas; render at device resolution.
+    const wrap=document.getElementById('pv-canvaswrap');
+    maxW=wrap.clientWidth;maxH=wrap.clientHeight;
+    dpr=Math.min(window.devicePixelRatio||1,3);
+  }else{
+    maxW=Math.round(portrait?window.innerWidth*.45:Math.min(window.innerWidth*.92,900));
+    maxH=Math.round(window.innerHeight*.92)-90;
+  }
+  const cssW=Math.max(1,Math.min(maxW,Math.round(maxH*aspect)));
+  const cssH=Math.max(1,Math.round(cssW/aspect));
+  const W=Math.round(cssW*dpr),H=Math.round(cssH*dpr);
   if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}
+  canvas.style.width=mobile?cssW+'px':'';
+  canvas.style.height=mobile?cssH+'px':'';
   gl.viewport(0,0,W,H);
   const sl=computeSkyline(la,lo,oe,caz,hFov,1024);
   uploadSL(sl);
@@ -745,6 +895,7 @@ function render(la,lo,arrow){
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   updateInfoBox(la,lo,oe,dist,mm);
   updateNavUI();
+  updateFocalChips();
   document.getElementById('pv-info').textContent=
     'Observer: '+la.toFixed(4)+'\xB0N, '+lo.toFixed(4)+'\xB0E'
     +' | Elev: '+Math.round(oe)+' m'
@@ -757,6 +908,7 @@ function openPreview(la,lo,arrow){
   curOffset=0;
   if(!arrow.moonMinutes)arrow.moonMinutes=computeMoonMinutes(arrow.tMS);
   document.getElementById('pv-overlay').classList.add('open');
+  document.getElementById('pv-nav').href=navURL(la.toFixed(6),lo.toFixed(6));
   applyPortraitClass();
   render(la,lo,arrow);
   if(_map){
