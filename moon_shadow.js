@@ -98,7 +98,7 @@ document.head.insertAdjacentHTML('beforeend', `<style>
   .st-grid{grid-template-columns:1fr;}
 }
 /* Mobile-only preview elements; .pv-grp wrappers are layout-neutral on desktop */
-#pv-top,#pv-chip,#pv-details,#pv-time,#pv-cam-toggle,.pv-fchips,#pv-nav{display:none;}
+#pv-top,#pv-chip,#pv-wx,#pv-details,#pv-time,#pv-cam-toggle,.pv-fchips,#pv-nav{display:none;}
 .pv-grp{display:contents;}
 @media(max-width:600px),(max-height:500px){
   #pv-overlay{background:#0b1020;align-items:stretch;justify-content:stretch;}
@@ -115,6 +115,10 @@ document.head.insertAdjacentHTML('beforeend', `<style>
     display:flex;align-items:center;justify-content:center;}
   #pv-infobox,#pv-info,#pv-offset,#pv-info-toggle,#pv-close,.pv-sep,.pv-long{display:none!important;}
   #pv-gps{font-size:13px;padding:8px 12px;border-radius:16px;}
+  #pv-wx:not(:empty){display:block;position:absolute;top:50px;left:8px;
+    background:rgba(15,23,42,.78);color:#fff;font:13px/1.2 sans-serif;
+    padding:8px 12px;border-radius:16px;pointer-events:none;white-space:nowrap;}
+  #pv-wx.uncertain{color:#cbd5e1;font-style:italic;}
   #pv-chip{display:block;position:absolute;top:8px;left:8px;border:none;border-radius:16px;
     background:rgba(15,23,42,.78);color:#fff;font:13px/1.2 sans-serif;padding:8px 12px;cursor:pointer;}
   #pv-ctrl{flex:none;max-height:50dvh;overflow-y:auto;flex-direction:column;
@@ -236,6 +240,7 @@ document.body.insertAdjacentHTML('beforeend', `
    <canvas id="pv-canvas" width="800" height="500"></canvas>
    <div id="pv-infobox"></div>
    <button id="pv-chip"></button>
+   <div id="pv-wx"></div>
    <div id="pv-gps"></div>
   </div>
   <div id="pv-profwrap"><canvas id="pv-prof"></canvas></div>
@@ -605,6 +610,7 @@ document.getElementById('pv-ics').onclick=function(){
 // ── Info overlay ──────────────────────────────────────────────────────────────
 function updateInfoBox(la,lo,oe,dist,mm){
   const [mAlt,mAz,mIllum,sAlt,,tStr]=mm;
+  const wx=weatherAt(curBaseMS+curOffset*60000);
   document.getElementById('pv-infobox').textContent=[
     '\u{1F550} '+tStr, '',
     '\u{1F4CD} Observer',
@@ -619,6 +625,7 @@ function updateInfoBox(la,lo,oe,dist,mm){
     '   azimuth   '+mAz.toFixed(2)+'\xB0',
     '   illum.    '+mIllum.toFixed(1)+'%', '',
     '☀️ Sun altitude  '+sAlt.toFixed(2)+'\xB0',
+    ...wxInfoLines(wx),
   ].join('\n');
   // Mobile: time in the top bar, a one-line summary chip over the canvas, and
   // the details (minus the already-known object position) below the canvas.
@@ -632,7 +639,11 @@ function updateInfoBox(la,lo,oe,dist,mm){
     '\u{1F319} Moon  alt '+mAlt.toFixed(2)+'\xB0  az '+mAz.toFixed(2)+'\xB0',
     '        illum '+mIllum.toFixed(1)+'%',
     '☀️ Sun   alt '+sAlt.toFixed(2)+'\xB0',
+    ...wxInfoLines(wx),
   ].join('\n');
+  const wxEl=document.getElementById('pv-wx');
+  wxEl.textContent=wx?wxShort(wx):'';
+  wxEl.classList.toggle('uncertain',!!(wx&&wx.uncertain));
 }
 function getCam(){
   const f=parseFloat(document.getElementById('pv-focal').value)||400;
@@ -1222,6 +1233,90 @@ document.getElementById('gps-btn').onclick=()=>{
   else showGpsMsg('Waiting for a location fix\u2026');
 };
 
+// ── Weather (Open-Meteo) ──────────────────────────────────────────────────────
+// Hourly cloud layers, rain chance and visibility at the object, 16 days
+// ahead, fetched per location and refreshed hourly. Cloud forecasts are only
+// reliable for a few days, so later ones are marked uncertain and never used
+// to fade ribbons. Low and mid cloud hide the moon; thin high cloud usually
+// doesn't, so the rating weighs them differently.
+const WX_UNCERTAIN_DAYS=5;
+let WX=null,wxLoading=null,wxCredit=false,lastShapeCount=0,lastMomentsMS=[];
+function wxKey(){return CONFIG.objLat.toFixed(3)+','+CONFIG.objLon.toFixed(3);}
+function loadWeather(){
+  const key=wxKey();
+  if(WX&&WX.key===key&&Date.now()-WX.fetched<3600000)return;
+  if(wxLoading===key)return;
+  wxLoading=key;
+  fetch('https://api.open-meteo.com/v1/forecast?latitude='+CONFIG.objLat.toFixed(4)+
+    '&longitude='+CONFIG.objLon.toFixed(4)+
+    '&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,precipitation_probability,visibility'+
+    '&forecast_days=16&timeformat=unixtime')
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{
+      if(wxLoading!==key)return; // location changed meanwhile
+      const h=d.hourly;
+      WX={key,fetched:Date.now(),t0:h.time[0]*1000,low:h.cloud_cover_low,
+          mid:h.cloud_cover_mid,high:h.cloud_cover_high,
+          pp:h.precipitation_probability,vis:h.visibility};
+      if(!wxCredit&&_map){
+        _map.attributionControl.addAttribution(
+          'Weather: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>');
+        wxCredit=true;
+      }
+      applyWeatherStyles();updateStatusBadge();
+      if(lastArgs&&document.getElementById('pv-overlay').classList.contains('open'))
+        render(...lastArgs);
+    })
+    .catch(()=>{}) // no forecast: everything simply shows without weather
+    .finally(()=>{if(wxLoading===key)wxLoading=null;});
+}
+function wxRating(w){
+  const block=Math.max(w.low,w.mid),pp=w.pp??0;
+  if(block>=75||pp>=60)return'bad';
+  if(block>=35||w.high>=75||pp>=30)return'fair';
+  return'good';
+}
+// Forecast for the hour nearest to ms, or null if there is none.
+function weatherAt(ms){
+  if(!WX||WX.key!==wxKey())return null;
+  const i=Math.round((ms-WX.t0)/3600000);
+  if(i<0||i>=WX.low.length||WX.low[i]==null)return null;
+  const w={low:WX.low[i],mid:WX.mid[i],high:WX.high[i],pp:WX.pp[i],vis:WX.vis[i],
+    uncertain:ms-Date.now()>WX_UNCERTAIN_DAYS*86400000};
+  w.rating=wxRating(w);
+  w.icon=(w.pp??0)>=60?'\u{1F327}\uFE0F':{good:'\u2728',fair:'\u26C5',bad:'\u2601\uFE0F'}[w.rating];
+  return w;
+}
+function wxShort(w){
+  return w.icon+' low '+w.low+' \xB7 mid '+w.mid+' \xB7 high '+w.high+'%'+
+    (w.pp!=null?' \xB7 rain '+w.pp+'%':'')+(w.uncertain?' \xB7 uncertain':'');
+}
+function wxInfoLines(w){
+  if(!w)return[];
+  return['',w.icon+' Weather'+(w.uncertain?'  (>'+WX_UNCERTAIN_DAYS+' days: uncertain)':''),
+    '   cloud low/mid/high '+w.low+'/'+w.mid+'/'+w.high+'%',
+    '   rain '+(w.pp!=null?w.pp+'%':'\u2013')+'  visibility '+
+      (w.vis!=null?Math.round(w.vis/1000)+' km':'\u2013')];
+}
+// Fade ribbons of moments that are reliably forecast to be clouded out.
+function applyWeatherStyles(){
+  arrowLayers.forEach(a=>{
+    const w=a.tMS!=null&&weatherAt(a.tMS);
+    const faded=w&&!w.uncertain&&w.rating==='bad';
+    a.line.setStyle(faded?{opacity:.2,fillOpacity:.05}:{opacity:.55,fillOpacity:.25});
+  });
+}
+function updateStatusBadge(){
+  let txt=lastShapeCount+' shapes ('+lastMomentsMS.length+' moments)';
+  const n={good:0,fair:0,bad:0};let any=false;
+  lastMomentsMS.forEach(ms=>{
+    const w=weatherAt(ms);
+    if(w&&!w.uncertain){n[w.rating]++;any=true;}
+  });
+  if(any)txt+=' \xB7 \u2728'+n.good+' \u26C5'+n.fair+' \u2601\uFE0F'+n.bad;
+  document.getElementById('status-badge').textContent=txt;
+}
+
 // ── Arrow building & rendering ─────────────────────────────────────────────────
 const arrowLayers=[];
 function clearArrows(){
@@ -1235,7 +1330,7 @@ function addArrow(zone){
       fillColor:zone.color,fillOpacity:.25})
     .on('click',e=>{L.DomEvent.stop(e);openPreview(e.latlng.lat,e.latlng.lng,zone);})
     .addTo(_map);
-  arrowLayers.push({line:poly,mkr:null});
+  arrowLayers.push({line:poly,mkr:null,tMS:zone.tMS});
 }
 // Builds the ribbon (a thin polygon) for one height level at one moment: the
 // left-edge track (moon's left limb grazing that height) and the right-edge
@@ -1308,7 +1403,10 @@ function buildAndRenderArrows(startDate,endDate){
         shapeCount++;
       });
     });
-    document.getElementById('status-badge').textContent=shapeCount+' shapes ('+results.length+' moments)';
+    lastShapeCount=shapeCount;lastMomentsMS=results.map(r=>r.tMS);
+    updateStatusBadge();
+    applyWeatherStyles();
+    loadWeather();
   },10);
 }
 

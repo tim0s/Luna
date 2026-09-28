@@ -38,6 +38,13 @@ Only moments that pass all of the following are shown — these help ensure the 
 - Moon illumination above a minimum (default 30% — thin crescents are hard to photograph)
 - Shooting location within the map area and beyond a minimum distance from the object
 
+### Weather
+Luna fetches a 16-day hourly forecast for the object's location from [Open-Meteo](https://open-meteo.com/) (no API key needed) and rates each moment by what actually hides the moon: low and mid cloud and rain chance weigh heavily, thin high cloud only a little.
+- The preview shows cloud cover (low / mid / high), rain chance and visibility for the selected minute.
+- Ribbons of moments forecast to be clouded out are faded on the map, and the status badge counts clear ✨, partly cloudy ⛅ and cloudy ☁️ moments.
+- Cloud forecasts are only reliable a few days ahead: beyond 5 days the preview marks the forecast as uncertain, and those moments are never faded or counted.
+- If the forecast can't be loaded, Luna works exactly as without it.
+
 ## Settings
 
 Click the ⚙ button to change:
@@ -63,5 +70,6 @@ The date filter bar at the top of the map lets you narrow the displayed ribbons 
 - [Leaflet](https://leafletjs.com/) for the map
 - [Esri Light Gray Canvas](https://www.arcgis.com/home/item.html?id=8b3d38c0819547faa83f7b7aca80bd76) basemap tiles
 - [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Terrarium format) for elevation
+- [Open-Meteo](https://open-meteo.com/) for the weather forecast
 - WebGL (via `canvas.getContext('webgl')`) for the scene preview
 - No build step — plain HTML + JS, runs entirely in the browser
