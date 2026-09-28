@@ -13,6 +13,11 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 #pv-overlay.portrait #pv-box{pointer-events:all;border-radius:10px 0 0 10px;
   overflow-y:auto;}
 #pv-canvaswrap{position:relative;line-height:0;}
+/* Absolutely positioned so the canvas never drives the box's shrink-to-fit width */
+#pv-profwrap{position:relative;flex:none;height:150px;background:#f8fafc;
+  border-top:1px solid #e2e8f0;}
+#pv-prof{position:absolute;inset:0;width:100%;height:100%;
+  touch-action:pan-y;cursor:crosshair;}
 #pv-canvas{display:block;}
 #pv-infobox{position:absolute;top:10px;left:10px;
   background:rgba(255,255,255,.82);color:#1e293b;
@@ -92,9 +97,9 @@ document.head.insertAdjacentHTML('beforeend', `<style>
     padding:max(6px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right))
       6px max(14px,env(safe-area-inset-left));}
   #pv-time-lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  #pv-time-lbl small{font-weight:400;color:#94a3b8;margin-left:6px;}
   #pv-close-m{flex:none;width:44px;height:44px;border:none;border-radius:22px;
     background:rgba(255,255,255,.14);color:#fff;font-size:20px;cursor:pointer;}
+  #pv-profwrap{height:130px;}
   #pv-canvaswrap{flex:1 1 0;min-height:0;min-width:0;overflow:hidden;
     display:flex;align-items:center;justify-content:center;}
   #pv-infobox,#pv-info,#pv-offset,#pv-info-toggle,#pv-close,.pv-sep,.pv-long{display:none!important;}
@@ -132,10 +137,11 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 }
 @media(max-height:500px) and (orientation:landscape){
   #pv-box{display:grid;grid-template-columns:minmax(0,1fr) min(340px,42vw);
-    grid-template-rows:auto minmax(0,1fr);}
+    grid-template-rows:auto minmax(0,1fr) auto;}
   #pv-canvaswrap{grid-column:1;grid-row:1/3;}
+  #pv-profwrap{grid-column:1;grid-row:3;height:96px;}
   #pv-top{grid-column:2;grid-row:1;}
-  #pv-ctrl{grid-column:2;grid-row:2;max-height:none;}
+  #pv-ctrl{grid-column:2;grid-row:2/4;max-height:none;}
 }
 </style>`);
 
@@ -202,6 +208,7 @@ document.body.insertAdjacentHTML('beforeend', `
    <div id="pv-infobox"></div>
    <button id="pv-chip"></button>
   </div>
+  <div id="pv-profwrap"><canvas id="pv-prof"></canvas></div>
   <div id="pv-ctrl">
    <button id="pv-cam-toggle">&#x1F4F7; Camera &#x25B8;</button>
    <div class="pv-grp" id="pv-g-cam">
@@ -228,7 +235,7 @@ document.body.insertAdjacentHTML('beforeend', `
    <div class="pv-grp" id="pv-g-time">
    <button id="pv-prev" title="Previous minute"><span class="pv-long">&#x25C4; </span>&#x2212;1<span class="pv-long"> min</span></button>
    <input id="pv-time" type="range" min="-15" max="15" step="1" value="0" aria-label="Time offset (minutes)">
-   <span id="pv-offset" style="font-size:11px;min-width:40px;text-align:center;color:#9ca3af">&#xB10 min</span>
+   <span id="pv-offset" style="font-size:11px;min-width:40px;text-align:center;color:#9ca3af"></span>
    <button id="pv-next" title="Next minute">+1<span class="pv-long"> min &#x25BA;</span></button>
    </div>
    <span class="pv-sep" style="border-left:1px solid #374151;margin:0 2px;align-self:stretch;"></span>
@@ -446,17 +453,16 @@ function uploadSL(sl){
 
 // ── Camera + navigation controls ──────────────────────────────────────────────
 let portrait=false,lastArgs=null;
-let curOffset=0,curArrow=null,curLa=0,curLo=0;
+// curBaseMS is the best shot time for the clicked spot (slider centre);
+// curMins holds the moon track for curBaseMS ±15 min.
+let curOffset=0,curArrow=null,curLa=0,curLo=0,curBaseMS=0,curMins=null;
 
 const MOBILE_MQ=window.matchMedia('(max-width:600px),(max-height:500px)');
 function isMobile(){return MOBILE_MQ.matches;}
-function offsetStr(){
-  return curOffset===0?'\xB10 min':(curOffset>0?'+'+curOffset+' min':curOffset+' min');
-}
 function updateNavUI(){
   document.getElementById('pv-prev').disabled=(curOffset<=-15);
   document.getElementById('pv-next').disabled=(curOffset>=15);
-  document.getElementById('pv-offset').textContent=offsetStr();
+  document.getElementById('pv-offset').textContent=curMins[curOffset+15][5].split(' ')[1];
   document.getElementById('pv-time').value=curOffset;
 }
 function setOffset(n){
@@ -532,8 +538,8 @@ document.getElementById('pv-close-m').onclick=()=>
   document.getElementById('pv-overlay').classList.remove('open');
 
 document.getElementById('pv-ics').onclick=function(){
-  const tMS=curArrow.tMS+curOffset*60000;
-  const mm=curArrow.moonMinutes[curOffset+15];
+  const tMS=curBaseMS+curOffset*60000;
+  const mm=curMins[curOffset+15];
   function icsDate(ms){
     const d=new Date(ms),p=n=>String(n).padStart(2,'0');
     return d.getUTCFullYear()+p(d.getUTCMonth()+1)+p(d.getUTCDate())+
@@ -586,9 +592,7 @@ function updateInfoBox(la,lo,oe,dist,mm){
   ].join('\n');
   // Mobile: time in the top bar, a one-line summary chip over the canvas, and
   // the details (minus the already-known object position) below the canvas.
-  const lbl=document.getElementById('pv-time-lbl');
-  lbl.textContent=tStr;
-  lbl.insertAdjacentHTML('beforeend','<small>'+offsetStr()+'</small>');
+  document.getElementById('pv-time-lbl').textContent=tStr;
   const km=dist>=1000?(dist/1000).toFixed(1)+' km':Math.round(dist)+' m';
   document.getElementById('pv-chip').textContent=
     '\u{1F319} '+mAlt.toFixed(1)+'\xB0 \xB7 '+Math.round(mIllum)+'% \xB7 '+km+'  ℹ';
@@ -844,12 +848,203 @@ function computeMoonMinutes(tMS){
   return mins;
 }
 
+// ── Line-of-sight profile ─────────────────────────────────────────────────────
+// Side view of the vertical plane from the observer to the object: terrain
+// elevation vs. distance. The solid sight line runs from the observer to the
+// point on the object the moon passes behind; the colour along the ground is
+// the clearance under it, i.e. how tall a tree or building could be there
+// without blocking the shot. The dashed line is the moon's direction at the
+// currently selected minute. Same flat-earth model as computeShadowPoint.
+const PROF_N=400,PROF_WARN_M=15,PROF_OK_M=40;
+const PROF_COL={bad:'#dc2626',warn:'#f59e0b',ok:'#16a34a'};
+let profSamples=null,profView=null,profHoverD=null,lastProfArgs=null;
+function getProfileSamples(la,lo,dist){
+  if(profSamples&&profSamples.la===la&&profSamples.lo===lo)return profSamples;
+  const DEG=Math.PI/180,R=6371000;
+  const brg=bearing(la,lo,CONFIG.objLat,CONFIG.objLon)*DEG;
+  const len=dist*1.05; // a little terrain behind the object for context
+  const cosLat=Math.cos(la*DEG);
+  const gs=new Float32Array(PROF_N+1);
+  for(let i=0;i<=PROF_N;i++){
+    const d=len*i/PROF_N;
+    gs[i]=sampleGrid(la+d*Math.cos(brg)/(R*DEG),lo+d*Math.sin(brg)/(R*cosLat*DEG));
+  }
+  profSamples={la,lo,len,gs};
+  return profSamples;
+}
+function niceStep(x){
+  const p=Math.pow(10,Math.floor(Math.log10(x)));
+  for(const m of[1,2,5,10])if(m*p>=x)return m*p;
+}
+function fmtDist(d){return d>=1000?(d/1000).toFixed(2)+' km':Math.round(d)+' m';}
+function clearanceColor(c){
+  return c<PROF_WARN_M?PROF_COL.bad:c<PROF_OK_M?PROF_COL.warn:PROF_COL.ok;
+}
+// Moon altitude at the moment its azimuth crosses the bearing to the object,
+// interpolated within the ±15 min track; null if it never crosses.
+function alignedMoonAlt(mins,caz){
+  const wd=(a,b)=>((a-b+540)%360)-180;
+  for(let i=0;i<mins.length-1;i++){
+    const a=wd(mins[i][1],caz),b=wd(mins[i+1][1],caz);
+    if(a===0)return mins[i][0];
+    if(a*b<0)return mins[i][0]+a/(a-b)*(mins[i+1][0]-mins[i][0]);
+  }
+  return null;
+}
+function drawProfile(la,lo,oe,dist,caz,mins,moonAlt){
+  const cv=document.getElementById('pv-prof'),ctx=cv.getContext('2d');
+  const cw=cv.clientWidth,ch=cv.clientHeight;
+  if(!cw||!ch)return;
+  const dpr=window.devicePixelRatio||1;
+  if(cv.width!==Math.round(cw*dpr)||cv.height!==Math.round(ch*dpr)){
+    cv.width=Math.round(cw*dpr);cv.height=Math.round(ch*dpr);
+  }
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,cw,ch);
+
+  const{len,gs}=getProfileSamples(la,lo,dist);
+  const DEG=Math.PI/180,tanA=Math.tan(moonAlt*DEG);
+  const moonAt=d=>oe+d*tanA;
+  const objBase=CONFIG.objElev,objTop=objBase+CONFIG.objH;
+  const alt0=alignedMoonAlt(mins,caz);
+  const hitH=Math.max(objBase,Math.min(objTop,oe+dist*Math.tan((alt0??moonAlt)*DEG)));
+  const losAt=d=>oe+d*(hitH-oe)/dist;
+  let yMin=Infinity,yMax=Math.max(objTop,moonAt(dist));
+  for(const g of gs){if(g<yMin)yMin=g;if(g>yMax)yMax=g;}
+  const span=Math.max(yMax-yMin,10);
+  yMin-=span*.08;yMax+=span*.15;
+  const L=40,Rm=10,T=20,B=18;
+  const px=d=>L+d/len*(cw-L-Rm);
+  const py=e=>T+(yMax-e)/(yMax-yMin)*(ch-T-B);
+  profView={L,Rm,cw,len};
+
+  // Grid and axis labels
+  ctx.font='10px sans-serif';ctx.lineWidth=1;
+  ctx.strokeStyle='#e2e8f0';ctx.fillStyle='#64748b';
+  ctx.textAlign='right';ctx.textBaseline='middle';
+  const yStep=niceStep((yMax-yMin)/3);
+  for(let e=Math.ceil(yMin/yStep)*yStep;e<=yMax;e+=yStep){
+    ctx.beginPath();ctx.moveTo(L,py(e));ctx.lineTo(cw-Rm,py(e));ctx.stroke();
+    ctx.fillText(Math.round(e)+' m',L-4,py(e));
+  }
+  ctx.textAlign='center';ctx.textBaseline='top';
+  const xStep=niceStep(len/Math.max(2,Math.floor((cw-L-Rm)/70)));
+  for(let d=0;d<=len;d+=xStep)ctx.fillText(d?fmtDist(d):'You',px(d),ch-B+4);
+
+  // Terrain
+  ctx.beginPath();ctx.moveTo(px(0),py(yMin));
+  for(let i=0;i<=PROF_N;i++)ctx.lineTo(px(len*i/PROF_N),py(gs[i]));
+  ctx.lineTo(px(len),py(yMin));ctx.closePath();
+  ctx.fillStyle='#d6d3d1';ctx.fill();
+
+  // Ground coloured by clearance under the line of sight, observer → object
+  ctx.lineWidth=3;ctx.lineCap='round';
+  for(let i=0;i<PROF_N;i++){
+    const d0=len*i/PROF_N,d1=len*(i+1)/PROF_N;
+    if(d0>=dist)break;
+    ctx.strokeStyle=clearanceColor(losAt(d0)-gs[i]);
+    ctx.beginPath();ctx.moveTo(px(d0),py(gs[i]));ctx.lineTo(px(d1),py(gs[i+1]));ctx.stroke();
+  }
+
+  // Object
+  ctx.fillStyle='#0f172a';
+  ctx.fillRect(px(dist)-2,py(objTop),4,Math.max(1,py(objBase)-py(objTop)));
+
+  // Sight line to the object, and the moon's direction now (continues past
+  // the object, clipped to the plot)
+  ctx.strokeStyle='#334155';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(px(0),py(oe));ctx.lineTo(px(dist),py(hitH));ctx.stroke();
+  ctx.save();
+  ctx.beginPath();ctx.rect(L,T-6,cw-L-Rm,ch-T-B+6);ctx.clip();
+  ctx.strokeStyle='#ca8a04';ctx.lineWidth=1.5;ctx.setLineDash([5,3]);
+  ctx.beginPath();ctx.moveTo(px(0),py(oe));ctx.lineTo(px(len),py(moonAt(len)));ctx.stroke();
+  ctx.restore();
+
+  // Observer
+  ctx.fillStyle='#4ade80';ctx.strokeStyle='#16a34a';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(px(0),py(oe),4,0,2*Math.PI);ctx.fill();ctx.stroke();
+
+  // Header: legend, or the readout for the hovered/tapped point
+  ctx.textAlign='left';ctx.textBaseline='middle';ctx.font='11px sans-serif';
+  if(profHoverD!=null){
+    const i=Math.round(profHoverD/len*PROF_N),d=len*i/PROF_N,g=gs[i];
+    ctx.strokeStyle='#475569';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(px(d),T-6);ctx.lineTo(px(d),ch-B);ctx.stroke();
+    ctx.fillStyle='#0f172a';
+    ctx.beginPath();ctx.arc(px(d),py(g),3,0,2*Math.PI);ctx.fill();
+    let txt=fmtDist(d)+' from you \xB7 ground '+Math.round(g)+' m';
+    if(d<=dist){
+      const c=losAt(d)-g;
+      txt+=' \xB7 '+(c<0?'terrain blocks the view':'clearance '+Math.round(c)+' m');
+      ctx.fillStyle=clearanceColor(c);
+    }else ctx.fillStyle='#334155';
+    ctx.fillText(txt,L,9);
+  }else{
+    let x=L;
+    ctx.fillStyle='#334155';ctx.fillText('Max obstacle:',x,9);
+    x+=ctx.measureText('Max obstacle: ').width;
+    [[PROF_COL.bad,'<'+PROF_WARN_M+' m'],[PROF_COL.warn,PROF_WARN_M+'–'+PROF_OK_M+' m'],
+     [PROF_COL.ok,'>'+PROF_OK_M+' m']].forEach(([col,lbl])=>{
+      ctx.fillStyle=col;ctx.fillRect(x,5,8,8);x+=11;
+      ctx.fillStyle='#334155';ctx.fillText(lbl,x,9);x+=ctx.measureText(lbl).width+8;
+    });
+    // Line key, where there is room for it
+    const key=[['#334155',[],'sight line'],['#ca8a04',[5,3],'moon now']];
+    const keyW=key.reduce((w,k)=>w+30+ctx.measureText(k[2]).width,0);
+    if(x+keyW<cw-Rm){
+      x=cw-Rm-keyW;
+      key.forEach(([col,dash,lbl])=>{
+        ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.setLineDash(dash);
+        ctx.beginPath();ctx.moveTo(x,9);ctx.lineTo(x+18,9);ctx.stroke();ctx.setLineDash([]);
+        ctx.fillStyle='#334155';ctx.fillText(lbl,x+22,9);x+=30+ctx.measureText(lbl).width;
+      });
+    }
+  }
+}
+(function(){
+  const cv=document.getElementById('pv-prof');
+  function onPointer(e){
+    if(!profView||!lastProfArgs)return;
+    const x=e.clientX-cv.getBoundingClientRect().left;
+    const{L,Rm,cw,len}=profView;
+    profHoverD=Math.max(0,Math.min(len,(x-L)/(cw-L-Rm)*len));
+    drawProfile(...lastProfArgs);
+  }
+  cv.addEventListener('pointermove',onPointer);
+  cv.addEventListener('pointerdown',onPointer);
+  cv.addEventListener('pointerleave',e=>{
+    if(e.pointerType!=='mouse'||!lastProfArgs)return;
+    profHoverD=null;drawProfile(...lastProfArgs);
+  });
+})();
+
+// The minute at which the moon, seen from the clicked spot, comes closest to
+// the object's silhouette. Searches a little beyond the ribbon's ±10 min sweep.
+function bestShotMS(la,lo,tMS){
+  const DEG=Math.PI/180;
+  const oe=sampleGrid(la,lo);
+  const caz=bearing(la,lo,CONFIG.objLat,CONFIG.objLon);
+  const dist=Math.max(haversine(la,lo,CONFIG.objLat,CONFIG.objLon),1);
+  const elBase=Math.atan2(CONFIG.objElev-oe,dist)/DEG;
+  const elTop=Math.atan2(CONFIG.objElev+CONFIG.objH-oe,dist)/DEG;
+  let best=tMS,bestSep=Infinity;
+  for(let dm=-20;dm<=20;dm++){
+    const ms=tMS+dm*60000;
+    const{altDeg,azDeg}=moonAltAzJS(CONFIG.objLat,CONFIG.objLon,CONFIG.objElev,msToUtcStr(ms));
+    const dx=(((azDeg-caz+540)%360)-180)*Math.cos(altDeg*DEG);
+    const dy=altDeg<elBase?elBase-altDeg:altDeg>elTop?altDeg-elTop:0;
+    const sep=Math.hypot(dx,dy);
+    if(sep<bestSep){bestSep=sep;best=ms;}
+  }
+  return best;
+}
+
 // ── Render ────────────────────────────────────────────────────────────────────
 function render(la,lo,arrow){
   lastArgs=[la,lo,arrow];
   curArrow=arrow;curLa=la;curLo=lo;
   initGL();
-  const mm=arrow.moonMinutes[curOffset+15];
+  const mm=curMins[curOffset+15];
   const oe=sampleGrid(la,lo);
   const caz=bearing(la,lo,CONFIG.objLat,CONFIG.objLon);
   const dist=Math.max(haversine(la,lo,CONFIG.objLat,CONFIG.objLon),1);
@@ -865,7 +1060,8 @@ function render(la,lo,arrow){
     dpr=Math.min(window.devicePixelRatio||1,3);
   }else{
     maxW=Math.round(portrait?window.innerWidth*.45:Math.min(window.innerWidth*.92,900));
-    maxH=Math.round(window.innerHeight*.92)-90;
+    maxH=Math.round(window.innerHeight*.92)-90
+      -document.getElementById('pv-profwrap').offsetHeight;
   }
   const cssW=Math.max(1,Math.min(maxW,Math.round(maxH*aspect)));
   const cssH=Math.max(1,Math.round(cssW/aspect));
@@ -896,6 +1092,8 @@ function render(la,lo,arrow){
   updateInfoBox(la,lo,oe,dist,mm);
   updateNavUI();
   updateFocalChips();
+  lastProfArgs=[la,lo,oe,dist,caz,curMins,mm[0]];
+  drawProfile(...lastProfArgs);
   document.getElementById('pv-info').textContent=
     'Observer: '+la.toFixed(4)+'\xB0N, '+lo.toFixed(4)+'\xB0E'
     +' | Elev: '+Math.round(oe)+' m'
@@ -905,8 +1103,9 @@ function render(la,lo,arrow){
 
 let observerMarker=null,_objMarker=null,_map=null;
 function openPreview(la,lo,arrow){
-  curOffset=0;
-  if(!arrow.moonMinutes)arrow.moonMinutes=computeMoonMinutes(arrow.tMS);
+  curOffset=0;profHoverD=null;
+  curBaseMS=bestShotMS(la,lo,arrow.tMS);
+  curMins=computeMoonMinutes(curBaseMS);
   document.getElementById('pv-overlay').classList.add('open');
   document.getElementById('pv-nav').href=navURL(la.toFixed(6),lo.toFixed(6));
   applyPortraitClass();
@@ -1001,7 +1200,7 @@ function buildAndRenderArrows(startDate,endDate){
       r.ribbons.forEach(({left,right})=>{
         const poly=ribbonPolygon(left,right);
         if(!poly)return;
-        addArrow({poly,color,tMS:r.tMS,tCenter:r.utcStr,moonMinutes:null});
+        addArrow({poly,color,tMS:r.tMS,tCenter:r.utcStr});
         shapeCount++;
       });
     });
