@@ -24,6 +24,7 @@
       stepH:0.5, minAltDeg:2, minDistM:1500,
       maxSunAltDeg:0, minMoonIllumPct:30,
       shadowStepM:30, mapHalfKm:5,
+      refraction:true,
     };
 
     // Apply URL hash params (allows shareable links for specific shots).
@@ -73,6 +74,9 @@
         CONFIG.startISO        =dayToISO(v.getUint16(18))+'T00:00:00Z';
         CONFIG.endISO          =dayToISO(v.getUint16(20))+'T23:00:00Z';
         if(tz)CONFIG.timezone=tz;
+        // Optional trailing flags byte (lengths 23 / 35): bit 0 = refraction off
+        if(buf.byteLength===23||buf.byteLength===35)
+          CONFIG.refraction=!(v.getUint8(buf.byteLength-1)&1);
         if(buf.byteLength>=34){
           CONFIG._shotLat=v.getInt32(22)/1e5;
           CONFIG._shotLon=v.getInt32(26)/1e5;

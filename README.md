@@ -17,7 +17,7 @@ From the preview you can download a **calendar entry** (`.ics`) for that specifi
 ## How it works
 
 ### Moon position
-Moon altitude and azimuth are calculated using the full Meeus *Astronomical Algorithms* Ch. 47 series (60 longitude terms, 20 latitude terms, 15 distance terms), with topocentric parallax correction. Sun altitude uses a simplified Meeus formula for the same timestamp. No external astronomy API is used.
+Moon altitude and azimuth are calculated using the full Meeus *Astronomical Algorithms* Ch. 47 series (60 longitude terms, 20 latitude terms, 15 distance terms), with topocentric parallax correction. Sun altitude uses a simplified Meeus formula for the same timestamp. Atmospheric refraction is applied to both (Sæmundsson's formula, Meeus eq. 16.4, with pressure scaled for elevation): it lifts the apparent altitude by about 0.5° at the horizon and 0.1° at 8°, which matters because Luna's shots are typically only a few degrees up. It can be switched off in the settings. No external astronomy API is used.
 
 ### Terrain
 Elevation data is loaded on-demand from [AWS Terrarium tiles](https://registry.opendata.aws/terrain-tiles/) at zoom 12 (~10 m/px). The raw RGB-encoded elevation values are decoded and stored in a floating-point grid, then sampled via bicubic Catmull-Rom interpolation for smooth results.
@@ -52,7 +52,9 @@ Click the ⚙ button to change:
 | Min distance | Reject shooting locations too close to the object |
 | Max sun altitude | Reject moments when it is not dark enough |
 | Min moon illum % | Reject thin crescents |
+| Atmospheric refraction | Use apparent (refracted) moon and sun altitudes — on by default |
 | Timezone | Display timezone for timestamps (IANA name or `local`) |
+| Show my location (GPS) | Blue dot on the map, a ◎ button to centre on it, and in the preview how far and in which direction the selected spot is from you. Off by default; saved on this device only, never in shared links |
 
 The date filter bar at the top of the map lets you narrow the displayed ribbons without a full recalculation.
 

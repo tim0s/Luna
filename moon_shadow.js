@@ -57,6 +57,16 @@ document.head.insertAdjacentHTML('beforeend', `<style>
   padding:5px 9px;cursor:pointer;font-size:17px;line-height:1;
   box-shadow:1px 1px 4px rgba(0,0,0,.3);}
 #settings-btn:hover{background:white;}
+#gps-btn{position:fixed;top:48px;right:10px;z-index:9999;
+  background:rgba(255,255,255,.92);border:none;border-radius:6px;
+  padding:5px 9px;cursor:pointer;font-size:17px;line-height:1;color:#2563eb;
+  box-shadow:1px 1px 4px rgba(0,0,0,.3);}
+#gps-msg{display:none;position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
+  z-index:30000;background:rgba(15,23,42,.92);color:#fff;padding:8px 14px;
+  border-radius:6px;font:13px sans-serif;max-width:90vw;text-align:center;}
+#pv-gps{display:none;position:absolute;left:8px;bottom:8px;
+  background:rgba(15,23,42,.78);color:#fff;font:12px/1.2 sans-serif;
+  padding:6px 10px;border-radius:14px;pointer-events:none;white-space:nowrap;}
 #st-overlay{display:none;position:fixed;inset:0;z-index:21000;
   background:rgba(0,0,0,.45);align-items:center;justify-content:center;}
 #st-overlay.open{display:flex;}
@@ -81,6 +91,7 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 @media(max-width:600px){
   #df-bar{display:none!important;}
   #settings-btn{padding:10px 14px;font-size:20px;}
+  #gps-btn{top:66px;padding:10px 14px;font-size:20px;}
   #st-overlay{align-items:flex-start;}
   #st-box{width:100vw;max-width:100vw;height:100dvh;border-radius:0;
     overflow-y:auto;padding:16px;box-sizing:border-box;}
@@ -103,6 +114,7 @@ document.head.insertAdjacentHTML('beforeend', `<style>
   #pv-canvaswrap{flex:1 1 0;min-height:0;min-width:0;overflow:hidden;
     display:flex;align-items:center;justify-content:center;}
   #pv-infobox,#pv-info,#pv-offset,#pv-info-toggle,#pv-close,.pv-sep,.pv-long{display:none!important;}
+  #pv-gps{font-size:13px;padding:8px 12px;border-radius:16px;}
   #pv-chip{display:block;position:absolute;top:8px;left:8px;border:none;border-radius:16px;
     background:rgba(15,23,42,.78);color:#fff;font:13px/1.2 sans-serif;padding:8px 12px;cursor:pointer;}
   #pv-ctrl{flex:none;max-height:50dvh;overflow-y:auto;flex-direction:column;
@@ -156,6 +168,8 @@ document.body.insertAdjacentHTML('beforeend', `
 </div>
 <div id="status-badge">Computing&#x2026;</div>
 <button id="settings-btn" title="Settings">&#x2699;</button>
+<button id="gps-btn" title="Center on my location" style="display:none">&#x25CE;</button>
+<div id="gps-msg"></div>
 <div id="st-overlay">
  <div id="st-box">
   <h3>Settings</h3>
@@ -179,7 +193,22 @@ document.body.insertAdjacentHTML('beforeend', `
    <label>Max sun altitude &#xB0;<input id="st-maxSun" type="number" step="0.5"></label>
    <label>Min moon illum %<input id="st-minIllum" type="number" step="1" min="0" max="100"></label>
   </div>
+  <h4>Calculation</h4>
+  <div class="st-solo">
+   <label style="flex-direction:row;align-items:flex-start;gap:8px;cursor:pointer">
+    <input id="st-refr" type="checkbox" style="margin:2px 0 0">
+    <span>Atmospheric refraction<br>
+     <small style="color:#9ca3af;font-size:10px">The air bends moonlight near the horizon, so the moon appears up to ~0.5&#xB0; higher than its geometric position. Recommended.</small></span>
+   </label>
+  </div>
   <h4>Display</h4>
+  <div class="st-solo" style="margin-bottom:7px">
+   <label style="flex-direction:row;align-items:flex-start;gap:8px;cursor:pointer">
+    <input id="st-gps" type="checkbox" style="margin:2px 0 0">
+    <span>Show my location (GPS)<br>
+     <small style="color:#9ca3af;font-size:10px">For use in the field: shows where you are on the map and how far the selected spot is. Saved on this device only.</small></span>
+   </label>
+  </div>
   <div class="st-grid">
    <label style="grid-column:span 2">Timezone
     <input id="st-tz" type="text" placeholder="local" style="width:100%">
@@ -207,6 +236,7 @@ document.body.insertAdjacentHTML('beforeend', `
    <canvas id="pv-canvas" width="800" height="500"></canvas>
    <div id="pv-infobox"></div>
    <button id="pv-chip"></button>
+   <div id="pv-gps"></div>
   </div>
   <div id="pv-profwrap"><canvas id="pv-prof"></canvas></div>
   <div id="pv-ctrl">
@@ -613,7 +643,15 @@ function getCam(){
          aspect:w/h};
 }
 
-// ── Moon position (Meeus Ch.47, topocentric, no refraction) ───────────────────
+// ── Moon position (Meeus Ch.47, topocentric, optional refraction) ─────────────
+// Atmospheric refraction lifts a body's apparent altitude: ~0.5° at the
+// horizon, ~0.1° at 8°. Sæmundsson's formula (Meeus eq. 16.4) for 10 °C and
+// 1010 hPa, with pressure scaled down for elevation.
+function refractionDeg(h,elevM){
+  if(!CONFIG.refraction||h<-2)return 0;
+  const R=1.02/Math.tan((h+10.3/(h+5.11))*Math.PI/180)/60;
+  return Math.max(0,R)*Math.exp(-elevM/8434);
+}
 function moonAltAzJS(lat,lon,elevM,utcStr){
   const DEG=Math.PI/180;
   function norm(x){return((x%360)+360)%360;}
@@ -675,7 +713,8 @@ function moonAltAzJS(lat,lon,elevM,utcStr){
   const latr=lat*DEG;
   const sinAlt=Math.sin(latr)*Math.sin(dec)+Math.cos(latr)*Math.cos(dec)*Math.cos(HA);
   const altGeo=Math.asin(Math.max(-1,Math.min(1,sinAlt)))/DEG;
-  const altDeg=altGeo-HPdeg*Math.cos(altGeo*DEG);
+  const altTopo=altGeo-HPdeg*Math.cos(altGeo*DEG);
+  const altDeg=altTopo+refractionDeg(altTopo,elevM);
   const azRad=Math.atan2(-Math.cos(dec)*Math.sin(HA),
                           Math.sin(dec)*Math.cos(latr)-Math.cos(dec)*Math.cos(HA)*Math.sin(latr));
   const azDeg=((azRad/DEG)%360+360)%360;
@@ -686,7 +725,8 @@ function moonAltAzJS(lat,lon,elevM,utcStr){
   const sunDec=Math.asin(Math.sin(eps)*Math.sin(sunLon));
   const sunHA=((GMST*15+lon-sunRA/DEG)%360+360)%360*DEG;
   const ssinAlt=Math.sin(latr)*Math.sin(sunDec)+Math.cos(latr)*Math.cos(sunDec)*Math.cos(sunHA);
-  const sunAltDeg=Math.asin(Math.max(-1,Math.min(1,ssinAlt)))/DEG;
+  const sunAltGeo=Math.asin(Math.max(-1,Math.min(1,ssinAlt)))/DEG;
+  const sunAltDeg=sunAltGeo+refractionDeg(sunAltGeo,elevM);
   const sunAzRad=Math.atan2(-Math.cos(sunDec)*Math.sin(sunHA),
                              Math.sin(sunDec)*Math.cos(latr)-Math.cos(sunDec)*Math.cos(sunHA)*Math.sin(latr));
   const sunAzDeg=((sunAzRad/DEG)%360+360)%360;
@@ -738,12 +778,15 @@ const HEIGHT_FRACTIONS=[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0];
 //   17   uint8  minIllum         18-19 uint16 start(days since 2000-01-01)
 //   20-21 uint16 end(days)       [22-25 int32 sLat×1e5  26-29 int32 sLon×1e5
 //                                  30-33 uint32 shot(Unix s)]
+//   [last byte uint8 flags, only when non-default: bit 0 = refraction off;
+//    total length 23 or 35]
 // Timezone appended as ".IANA_name" when non-default.
 const LUNA_BASE='https://tim0s.github.io/Luna/';
 const _EPOCH=Date.UTC(2000,0,1);
 function _encodeHash(extra){
   const C=CONFIG,hasShot=extra&&extra.shot!=null;
-  const buf=new ArrayBuffer(hasShot?34:22);
+  const flags=C.refraction===false?1:0;
+  const buf=new ArrayBuffer((hasShot?34:22)+(flags?1:0));
   const v=new DataView(buf);
   const startMS=new Date(extra&&extra.startISO||C.startISO).getTime();
   const endMS  =new Date(extra&&extra.endISO  ||C.endISO  ).getTime();
@@ -763,6 +806,7 @@ function _encodeHash(extra){
     v.setInt32(26, Math.round(extra.sLon*1e5));
     v.setUint32(30,Math.floor(extra.shot/1000));
   }
+  if(flags)v.setUint8(buf.byteLength-1,flags);
   const bytes=new Uint8Array(buf);
   let bin='';for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);
   const b64=btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
@@ -1110,6 +1154,7 @@ function openPreview(la,lo,arrow){
   document.getElementById('pv-nav').href=navURL(la.toFixed(6),lo.toFixed(6));
   applyPortraitClass();
   render(la,lo,arrow);
+  updateGpsBadge();
   if(_map){
     if(observerMarker)observerMarker.setLatLng([la,lo]);
     else observerMarker=L.circleMarker([la,lo],
@@ -1117,6 +1162,65 @@ function openPreview(la,lo,arrow){
       .addTo(_map);
   }
 }
+
+// ── GPS position (optional) ───────────────────────────────────────────────────
+// Off by default since it only matters in the field. The preference is kept in
+// this browser only, never in shared links.
+const GPS_KEY='luna-gps';
+let gpsWatch=null,gpsPos=null,gpsDot=null,gpsAcc=null,gpsMsgTimer=0;
+function gpsPref(){try{return localStorage.getItem(GPS_KEY)==='1';}catch(e){return false;}}
+function setGpsPref(on){try{localStorage.setItem(GPS_KEY,on?'1':'0');}catch(e){}}
+function compass(deg){return['N','NE','E','SE','S','SW','W','NW'][Math.round(deg/45)%8];}
+function showGpsMsg(txt){
+  const t=document.getElementById('gps-msg');
+  t.textContent=txt;t.style.display='block';
+  clearTimeout(gpsMsgTimer);gpsMsgTimer=setTimeout(()=>t.style.display='none',5000);
+}
+// In the preview: where the selected spot is relative to you.
+function updateGpsBadge(){
+  const el=document.getElementById('pv-gps');
+  if(!gpsPos||!document.getElementById('pv-overlay').classList.contains('open')){
+    el.style.display='none';return;
+  }
+  const d=haversine(gpsPos.lat,gpsPos.lon,curLa,curLo);
+  el.textContent=d<=Math.max(10,gpsPos.acc)
+    ?'\u{1F4CD} You are at the spot (\xB1'+Math.round(gpsPos.acc)+' m)'
+    :'\u{1F4CD} Spot is '+fmtDist(d)+' '+compass(bearing(gpsPos.lat,gpsPos.lon,curLa,curLo))+' of you';
+  el.style.display='block';
+}
+function startGps(){
+  if(gpsWatch!=null)return;
+  if(!navigator.geolocation){showGpsMsg('Location is not available in this browser.');return;}
+  document.getElementById('gps-btn').style.display='';
+  gpsWatch=navigator.geolocation.watchPosition(pos=>{
+    gpsPos={lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy};
+    const ll=[gpsPos.lat,gpsPos.lon];
+    if(_map){
+      if(!gpsDot){
+        gpsAcc=L.circle(ll,{radius:gpsPos.acc,color:'#2563eb',weight:1,opacity:.4,
+          fillOpacity:.1,interactive:false}).addTo(_map);
+        gpsDot=L.circleMarker(ll,{radius:6,color:'#fff',weight:2,fillColor:'#2563eb',
+          fillOpacity:1,interactive:false}).addTo(_map);
+      }else{gpsDot.setLatLng(ll);gpsAcc.setLatLng(ll).setRadius(gpsPos.acc);}
+    }
+    updateGpsBadge();
+  },err=>{
+    showGpsMsg(err.code===1
+      ?'Location permission denied \u2014 allow it in your browser settings.'
+      :'Location unavailable: '+err.message);
+  },{enableHighAccuracy:true,maximumAge:5000,timeout:30000});
+}
+function stopGps(){
+  if(gpsWatch!=null)navigator.geolocation.clearWatch(gpsWatch);
+  gpsWatch=null;gpsPos=null;
+  if(gpsDot){_map.removeLayer(gpsDot);_map.removeLayer(gpsAcc);gpsDot=gpsAcc=null;}
+  document.getElementById('gps-btn').style.display='none';
+  updateGpsBadge();
+}
+document.getElementById('gps-btn').onclick=()=>{
+  if(gpsPos&&_map)_map.setView([gpsPos.lat,gpsPos.lon],Math.max(_map.getZoom(),15));
+  else showGpsMsg('Waiting for a location fix\u2026');
+};
 
 // ── Arrow building & rendering ─────────────────────────────────────────────────
 const arrowLayers=[];
@@ -1234,6 +1338,8 @@ document.getElementById('settings-btn').onclick=()=>{
   document.getElementById('st-maxSun').value=CONFIG.maxSunAltDeg;
   document.getElementById('st-minIllum').value=CONFIG.minMoonIllumPct;
   document.getElementById('st-tz').value=CONFIG.timezone;
+  document.getElementById('st-refr').checked=CONFIG.refraction!==false;
+  document.getElementById('st-gps').checked=gpsWatch!=null;
   document.getElementById('st-overlay').classList.add('open');
 };
 document.getElementById('st-cancel').onclick=()=>
@@ -1255,6 +1361,9 @@ document.getElementById('st-ok').onclick=async()=>{
   CONFIG.maxSunAltDeg   =parseFloat(document.getElementById('st-maxSun').value);
   CONFIG.minMoonIllumPct=parseFloat(document.getElementById('st-minIllum').value);
   CONFIG.timezone=document.getElementById('st-tz').value.trim()||'local';
+  CONFIG.refraction=document.getElementById('st-refr').checked;
+  const gpsOn=document.getElementById('st-gps').checked;
+  setGpsPref(gpsOn);gpsOn?startGps():stopGps();
   CONFIG._shotMS=null;
   document.getElementById('st-overlay').classList.remove('open');
   syncURL();
@@ -1281,6 +1390,7 @@ document.getElementById('st-ok').onclick=async()=>{
   const m=window[MAP_VAR];
   if(!m){setTimeout(waitForMap,100);return;}
   _map=m;
+  if(gpsPref())startGps();
   const objIcon=L.divIcon({
     html:'<div style="font-size:14px;line-height:1;color:#ef4444;text-shadow:0 1px 3px rgba(0,0,0,.8)">▲</div>',
     className:'',iconSize:[14,14],iconAnchor:[7,12]});
