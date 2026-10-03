@@ -6,7 +6,7 @@ Luna helps photographers find the best spots and moments to capture the moon ris
 
 ## What it does
 
-For each qualifying moment, Luna draws ten thin ribbons on the map — one for each tenth of the object's height (10%, 20%, ... up to the full tip) — showing where to stand so the moon appears behind that part of the object. Each ribbon's width is the moon's own apparent width (its left and right edges grazing the object), and its length traces how the ideal position drifts over a ±10 minute window, so you can see how quickly you need to move to track the moon. All the ribbons for one moment share the same color, drawn on a plasma scale from early (purple) to late (yellow) within the displayed date range.
+For each qualifying moment, Luna draws ten thin ribbons on the map — one for each tenth of the object's height (10%, 20%, ... up to the full tip) — showing where to stand so the moon appears behind that part of the object. Each ribbon's width is the moon's own apparent width (its left and right edges grazing the object), and its length traces how the ideal position drifts over a ±10 minute window, so you can see how quickly you need to move to track the moon. Ribbons are interrupted wherever terrain between you and the object would hide that part of it — for example on the back slope of a ridge the moon's track jumps across. All the ribbons for one moment share the same color, drawn on a plasma scale from early (purple) to late (yellow) within the displayed date range.
 
 Click inside any ribbon to open a WebGL scene preview: a simulated view from that shooting location looking back toward the object, with the moon rendered in its correct phase behind it. The preview opens at the minute when the moon, seen from exactly the spot you clicked, comes closest to the object. You can step ±15 minutes around that moment, change sensor size and focal length, and toggle landscape/portrait orientation to plan your framing before you head out.
 
@@ -23,12 +23,13 @@ Moon altitude and azimuth are calculated using the full Meeus *Astronomical Algo
 Elevation data is loaded on-demand from [AWS Terrarium tiles](https://registry.opendata.aws/terrain-tiles/) at zoom 12 (~10 m/px). The raw RGB-encoded elevation values are decoded and stored in a floating-point grid, then sampled via bicubic Catmull-Rom interpolation for smooth results.
 
 ### Shooting location calculation
-For each qualifying timestamp, the code traces a ray from a given fraction of the object's height (10%–100%) in the anti-moon direction, using the moon's own azimuth shifted by its apparent angular radius (~0.26°) to either side — this gives the left-edge and right-edge tracks that bound a ribbon, rather than a single point. Each ray steps outward in configurable intervals (default 30 m) and checks whether the ray height drops below the terrain surface; the intersection is refined with linear interpolation. Repeating this for ten height fractions gives ten stacked ribbons per moment, each showing where to stand so the moon is behind that specific part of the object.
+For each qualifying timestamp, the code traces a ray from a given fraction of the object's height (10%–100%) in the anti-moon direction, using the moon's own azimuth shifted by its apparent angular radius (~0.26°) to either side — this gives the left-edge and right-edge tracks that bound a ribbon, rather than a single point. Each ray steps outward in configurable intervals (default 30 m) and checks whether the ray height drops below the terrain surface; the intersection is refined with linear interpolation. Repeating this for ten height fractions gives ten stacked ribbons per moment, each showing where to stand so the moon is behind that specific part of the object. Each ribbon is then cut into ~50 m slices and a line-of-sight check (eye 1.5 m above ground) from each slice's centre to that height on the object drops the slices from where the terrain blocks the view.
 
 ### Scene preview (WebGL)
 The preview is rendered with a WebGL fragment shader that:
 - Reads a 1024-sample skyline texture (maximum terrain elevation angle at each horizontal pixel column) computed via ray-marching from the observer position
 - Draws sky, terrain silhouette, moon disc + glow, and the object silhouette
+- Keeps a second skyline of only the terrain in front of the object: any part of the object hidden behind it blinks as a red hatched ghost, with a "hidden by terrain" label, instead of being drawn as if visible
 - Adjusts sky brightness based on sun altitude (night → deep blue / day → pale)
 
 ### Filters

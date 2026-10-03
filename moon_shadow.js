@@ -19,6 +19,10 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 #pv-prof{position:absolute;inset:0;width:100%;height:100%;
   touch-action:pan-y;cursor:crosshair;}
 #pv-canvas{display:block;}
+#pv-hidden{display:none;position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
+  background:rgba(220,38,38,.9);color:#fff;font:600 12px/1.3 sans-serif;
+  padding:6px 12px;border-radius:14px;pointer-events:none;white-space:nowrap;}
+#pv-hidden.on{display:block;}
 #pv-infobox{position:absolute;top:10px;left:10px;
   background:rgba(255,255,255,.82);color:#1e293b;
   font:12px/1.7 monospace;padding:8px 12px;border-radius:6px;
@@ -242,6 +246,7 @@ document.body.insertAdjacentHTML('beforeend', `
    <button id="pv-chip"></button>
    <div id="pv-wx"></div>
    <div id="pv-gps"></div>
+   <div id="pv-hidden"></div>
   </div>
   <div id="pv-profwrap"><canvas id="pv-prof"></canvas></div>
   <div id="pv-ctrl">
@@ -373,22 +378,43 @@ function bearing(la1,lo1,la2,lo2){
 }
 
 // ── Skyline ───────────────────────────────────────────────────────────────────
-function maxElevAngle(la,lo,oe,azDeg){
+// Maximum terrain elevation angle along one azimuth: over the whole range, and
+// over the terrain closer than nearD only (what stands in front of the object).
+function maxElevAngle(la,lo,oe,azDeg,nearD){
   const r=Math.PI/180,ca=Math.cos(azDeg*r),sa=Math.sin(azDeg*r);
   const cl=Math.cos(la*r);
-  let mx=-30;
+  let mx=-30,near=-30;
   for(let d=50;d<=14000;d+=50){
     const e=sampleGrid(la+(d*ca)/111111,lo+(d*sa)/(111111*cl));
     const a=Math.atan2(e-oe,d)*180/Math.PI;
     if(a>mx)mx=a;
+    if(d<nearD&&a>near)near=a;
   }
-  return mx;
+  return[mx,near];
 }
-function computeSkyline(la,lo,oe,camAz,hFov,n){
-  const sl=new Float32Array(n);
+// Two rows of n samples: the full skyline, then the skyline in front of the object.
+function computeSkyline(la,lo,oe,camAz,hFov,n,nearD){
+  const sl=new Float32Array(2*n);
   for(let i=0;i<n;i++)
-    sl[i]=maxElevAngle(la,lo,oe,camAz-hFov/2+(i/(n-1))*hFov);
+    [sl[i],sl[n+i]]=maxElevAngle(la,lo,oe,camAz-hFov/2+(i/(n-1))*hFov,nearD);
   return sl;
+}
+
+// ── Line of sight to the object ───────────────────────────────────────────────
+// Whether the point at fraction hf of the object's height can be seen from an
+// eye EYE_H above the ground at (la,lo), i.e. no terrain rises above the
+// straight sight line. Bare-earth terrain only, like everything else here.
+const EYE_H=1.5;
+function objectVisible(la,lo,hf){
+  const dist=haversine(la,lo,CONFIG.objLat,CONFIG.objLon);
+  const step=CONFIG.shadowStepM;
+  const oe=sampleGrid(la,lo)+EYE_H,te=CONFIG.objElev+CONFIG.objH*hf;
+  const dLat=CONFIG.objLat-la,dLon=CONFIG.objLon-lo;
+  for(let d=step;d<dist-step;d+=step){
+    const t=d/dist;
+    if(sampleGrid(la+dLat*t,lo+dLon*t)>oe+(te-oe)*t)return false;
+  }
+  return true;
 }
 
 // ── WebGL setup ───────────────────────────────────────────────────────────────
@@ -402,14 +428,15 @@ uniform vec2 uRes;
 uniform float uCamAz,uCamEl,uHFov,uVFov;
 uniform float uMoonAz,uMoonAlt,uMoonRad,uMoonK,uSunAz,uSunAlt;
 uniform float uObjAz,uObjElC,uObjHH,uObjHW;
-uniform float uSkyB,uBright;
+uniform float uSkyB,uBright,uBlink,uHatch;
 uniform sampler2D uSL;
 float wd(float a,float b){return mod(a-b+180.,360.)-180.;}
 void main(){
   vec2 ndc=(gl_FragCoord.xy/uRes)*2.-1.;
   float pAz=uCamAz+ndc.x*uHFov*.5;
   float pEl=uCamEl+ndc.y*uVFov*.5;
-  float slEl=texture2D(uSL,vec2((ndc.x+1.)*.5,.5)).r*120.-30.;
+  float slEl=texture2D(uSL,vec2((ndc.x+1.)*.5,.25)).r*120.-30.;
+  float nearEl=texture2D(uSL,vec2((ndc.x+1.)*.5,.75)).r*120.-30.;
   bool ter=pEl<slEl;
   float t=clamp((pEl+5.)/50.,0.,1.);
   vec3 hc=mix(vec3(.05,.04,.02),vec3(.08,.13,.30),uSkyB);
@@ -430,7 +457,15 @@ void main(){
     col+=vec3(.9,.85,.5)*exp(-md/(uMoonRad*3.))*.08;
   }
   float oaz=wd(pAz,uObjAz),oel=pEl-uObjElC;
-  if(abs(oaz)<uObjHW&&abs(oel)<uObjHH)col=vec3(.04,.04,.04);
+  if(abs(oaz)<uObjHW&&abs(oel)<uObjHH){
+    if(pEl>=nearEl)col=vec3(.04,.04,.04);
+    else{
+      // Hidden behind terrain in front of it: a blinking red hatched ghost
+      float on=smoothstep(.2,.8,.5+.5*sin(uBlink*6.2832));
+      float hatch=step(.5,fract((gl_FragCoord.x+gl_FragCoord.y)/uHatch));
+      col=mix(col,vec3(1.,.15,.1),on*(.3+.5*hatch));
+    }
+  }
   gl_FragColor=vec4(col*uBright,1.);
 }`;
 
@@ -465,25 +500,38 @@ function initGL(){
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   ['uRes','uCamAz','uCamEl','uHFov','uVFov','uMoonAz','uMoonAlt','uMoonRad',
    'uMoonK','uSunAz','uSunAlt',
-   'uObjAz','uObjElC','uObjHH','uObjHW','uSkyB','uBright','uSL']
+   'uObjAz','uObjElC','uObjHH','uObjHW','uSkyB','uBright','uBlink','uHatch','uSL']
     .forEach(n=>uL[n]=gl.getUniformLocation(prog,n));
   gl.uniform1i(uL.uSL,0);
   glReady=true;
 }
 function uploadSL(sl){
   gl.bindTexture(gl.TEXTURE_2D,skyTex);
+  const w=sl.length/2;
   if(glFloatTex){
     const f=new Float32Array(sl.length);
     for(let i=0;i<sl.length;i++)f[i]=(sl[i]+30)/120;
-    gl.texImage2D(gl.TEXTURE_2D,0,gl.LUMINANCE,sl.length,1,0,
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.LUMINANCE,w,2,0,
                   gl.LUMINANCE,gl.FLOAT,f);
   }else{
     const b=new Uint8Array(sl.length);
     for(let i=0;i<sl.length;i++)
       b[i]=Math.max(0,Math.min(255,Math.round((sl[i]+30)/120*255)));
-    gl.texImage2D(gl.TEXTURE_2D,0,gl.LUMINANCE,sl.length,1,0,
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.LUMINANCE,w,2,0,
                   gl.LUMINANCE,gl.UNSIGNED_BYTE,b);
   }
+}
+// While part of the object is hidden, redraw every frame so it blinks.
+let objHidden=false,blinkRAF=0;
+function drawScene(){
+  gl.uniform1f(uL.uBlink,(performance.now()/1000)%1);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+function blinkLoop(){
+  blinkRAF=0;
+  if(!objHidden||!document.getElementById('pv-overlay').classList.contains('open'))return;
+  drawScene();
+  blinkRAF=requestAnimationFrame(blinkLoop);
 }
 
 // ── Camera + navigation controls ──────────────────────────────────────────────
@@ -1100,11 +1148,11 @@ function render(la,lo,arrow){
   curArrow=arrow;curLa=la;curLo=lo;
   initGL();
   const mm=curMins[curOffset+15];
-  const oe=sampleGrid(la,lo);
+  const oe=sampleGrid(la,lo),eye=oe+EYE_H;
   const caz=bearing(la,lo,CONFIG.objLat,CONFIG.objLon);
   const dist=Math.max(haversine(la,lo,CONFIG.objLat,CONFIG.objLon),1);
   const midEl=CONFIG.objElev+CONFIG.objH*.5;
-  const cel=Math.atan2(midEl-oe,dist)*180/Math.PI;
+  const cel=Math.atan2(midEl-eye,dist)*180/Math.PI;
   const{hFov,vFov,aspect}=getCam();
   const mobile=isMobile();
   let maxW,maxH,dpr=1;
@@ -1125,11 +1173,28 @@ function render(la,lo,arrow){
   canvas.style.width=mobile?cssW+'px':'';
   canvas.style.height=mobile?cssH+'px':'';
   gl.viewport(0,0,W,H);
-  const sl=computeSkyline(la,lo,oe,caz,hFov,1024);
+  const SLN=1024;
+  // The object's own footing (last 50 m) doesn't count as terrain in front of it.
+  const sl=computeSkyline(la,lo,eye,caz,hFov,SLN,dist-50);
   uploadSL(sl);
   const ohh=Math.atan(CONFIG.objH/2/dist)*180/Math.PI;
   const ohw=Math.atan(CONFIG.objW/2/dist)*180/Math.PI;
-  const oelC=Math.atan2(midEl-oe,dist)*180/Math.PI;
+  const oelC=Math.atan2(midEl-eye,dist)*180/Math.PI;
+  // How much of the object the terrain in front of it hides, judged by the
+  // skyline columns it spans (at least the centre one).
+  let nearMax=-Infinity,nearMin=Infinity;
+  for(let i=0;i<SLN;i++){
+    if(Math.abs(-hFov/2+i/(SLN-1)*hFov)>ohw&&i!==SLN>>1)continue;
+    nearMax=Math.max(nearMax,sl[SLN+i]);nearMin=Math.min(nearMin,sl[SLN+i]);
+  }
+  // Any hidden part blinks; the warning only shows once at least 10% of the
+  // object's height is hidden, so a sliver at its foot doesn't trigger it.
+  objHidden=nearMax>oelC-ohh;
+  const hidden=nearMin>=oelC+ohh?'all':nearMax>oelC-ohh*.8?'part':null;
+  const hidEl=document.getElementById('pv-hidden');
+  hidEl.textContent=hidden==='all'?'\u26A0 Object hidden by terrain from here'
+    :'\u26A0 Object partly hidden by terrain';
+  hidEl.classList.toggle('on',!!hidden);
   const skyB=Math.max(0,Math.min(1,(mm[3]+18)/12));
   gl.uniform2f(uL.uRes,W,H);
   gl.uniform1f(uL.uCamAz,caz);gl.uniform1f(uL.uCamEl,cel);
@@ -1142,8 +1207,10 @@ function render(la,lo,arrow){
   gl.uniform1f(uL.uObjHH,ohh);gl.uniform1f(uL.uObjHW,ohw);
   gl.uniform1f(uL.uSkyB,skyB);
   gl.uniform1f(uL.uBright,parseFloat(document.getElementById('pv-bright').value)||1);
+  gl.uniform1f(uL.uHatch,8*dpr);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,skyTex);
-  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  drawScene();
+  if(objHidden&&!blinkRAF)blinkRAF=requestAnimationFrame(blinkLoop);
   updateInfoBox(la,lo,oe,dist,mm);
   updateNavUI();
   updateFocalChips();
@@ -1332,19 +1399,41 @@ function addArrow(zone){
     .addTo(_map);
   arrowLayers.push({line:poly,mkr:null,tMS:zone.tMS});
 }
-// Builds the ribbon (a thin polygon) for one height level at one moment: the
-// left-edge track (moon's left limb grazing that height) and the right-edge
-// track (moon's right limb), each swept over the same ±10 minute window,
-// joined into a closed shape. Mirrors the old collapse-if-static behavior:
-// if the drift over 20 minutes is negligible, only the endpoints are used.
-function ribbonPolygon(left,right){
-  const validLeft=left.filter(p=>p!==null),validRight=right.filter(p=>p!==null);
-  if(validLeft.length<2||validRight.length<2)return null;
+// Builds the ribbon for one height level at one moment: the left-edge track
+// (moon's left limb grazing that height) and the right-edge track (moon's
+// right limb), each swept over the same ±10 minute window, joined into thin
+// polygons. Mirrors the old collapse-if-static behavior: if the drift over 20
+// minutes is negligible, only the endpoints are used. The ribbon is cut into
+// ~RIBBON_SUB_M long slices and slices from whose centre that height of the
+// object is hidden by terrain are dropped, so it breaks where the view is
+// blocked (e.g. across the back of a ridge when the track jumps over it).
+const RIBBON_SUB_M=50,RIBBON_SUB_MAX=40;
+function ribbonPolygons(left,right,hf){
+  let idx=left.map((_,i)=>i).filter(i=>left[i]&&right[i]);
+  if(idx.length<2)return[];
   const l0=left[0],l4=left[4];
   const useFull=l0&&l4&&haversine(l0[0],l0[1],l4[0],l4[1])>100;
-  const L=useFull?validLeft:[validLeft[0],validLeft[validLeft.length-1]];
-  const R=useFull?validRight:[validRight[0],validRight[validRight.length-1]];
-  return[...L,...R.slice().reverse()];
+  if(!useFull)idx=[idx[0],idx[idx.length-1]];
+  const lerp=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+  const sl=[left[idx[0]]],sr=[right[idx[0]]];
+  for(let k=0;k<idx.length-1;k++){
+    const a=idx[k],b=idx[k+1];
+    const len=Math.max(haversine(...left[a],...left[b]),haversine(...right[a],...right[b]));
+    const n=Math.max(1,Math.min(RIBBON_SUB_MAX,Math.ceil(len/RIBBON_SUB_M)));
+    for(let j=1;j<=n;j++){
+      sl.push(lerp(left[a],left[b],j/n));sr.push(lerp(right[a],right[b],j/n));
+    }
+  }
+  const polys=[];let run=null;
+  for(let j=0;j<sl.length-1;j++){
+    const c=lerp(lerp(sl[j],sl[j+1],.5),lerp(sr[j],sr[j+1],.5),.5);
+    if(objectVisible(c[0],c[1],hf)){
+      if(!run)run={l:[sl[j]],r:[sr[j]]};
+      run.l.push(sl[j+1]);run.r.push(sr[j+1]);
+    }else if(run){polys.push(run);run=null;}
+  }
+  if(run)polys.push(run);
+  return polys.map(({l,r})=>[...l,...r.reverse()]);
 }
 function buildAndRenderArrows(startDate,endDate){
   clearArrows();
@@ -1396,11 +1485,11 @@ function buildAndRenderArrows(startDate,endDate){
     let shapeCount=0;
     results.forEach(r=>{
       const color=plasmaColor((r.tMS-startMS)/tSpan);
-      r.ribbons.forEach(({left,right})=>{
-        const poly=ribbonPolygon(left,right);
-        if(!poly)return;
-        addArrow({poly,color,tMS:r.tMS,tCenter:r.utcStr});
-        shapeCount++;
+      r.ribbons.forEach(({hf,left,right})=>{
+        ribbonPolygons(left,right,hf).forEach(poly=>{
+          addArrow({poly,color,tMS:r.tMS,tCenter:r.utcStr});
+          shapeCount++;
+        });
       });
     });
     lastShapeCount=shapeCount;lastMomentsMS=results.map(r=>r.tMS);
