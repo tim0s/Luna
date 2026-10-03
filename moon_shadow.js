@@ -53,6 +53,14 @@ document.head.insertAdjacentHTML('beforeend', `<style>
   font-family:sans-serif;font-size:12px;display:flex;align-items:center;gap:8px;}
 #df-bar input[type=date]{border:1px solid #ccc;border-radius:3px;
   padding:2px 5px;font-size:12px;}
+#calc-prog{display:none;position:fixed;top:95px;left:50%;transform:translateX(-50%);
+  z-index:9998;background:rgba(255,255,255,.95);padding:6px 12px 8px;border-radius:6px;
+  box-shadow:1px 1px 4px rgba(0,0,0,.3);font:12px sans-serif;color:#334155;
+  width:260px;max-width:calc(100vw - 150px);box-sizing:border-box;}
+#calc-prog.on{display:block;}
+#calc-prog-txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:5px;}
+#calc-prog-bar{height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;}
+#calc-prog-fill{height:100%;width:0;background:#3b82f6;transition:width .15s linear;}
 #status-badge{position:fixed;bottom:30px;left:10px;z-index:9999;
   background:rgba(255,255,255,.92);padding:6px 10px;border-radius:6px;
   box-shadow:1px 1px 4px rgba(0,0,0,.3);font:11px monospace;}
@@ -94,6 +102,7 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 #st-cancel{background:#e2e8f0!important;color:#475569!important;}
 @media(max-width:600px){
   #df-bar{display:none!important;}
+  #calc-prog{top:12px;}
   #settings-btn{padding:10px 14px;font-size:20px;}
   #gps-btn{top:66px;padding:10px 14px;font-size:20px;}
   #st-overlay{align-items:flex-start;}
@@ -170,9 +179,13 @@ document.body.insertAdjacentHTML('beforeend', `
 <div id="settings-hint">⚙ Change Settings here</div>
 <div id="df-bar">
  <span>Show:</span>
- <input type="date" id="df-start">
+ <input type="date" id="df-start" min="2000-01-01" max="2179-12-31">
  <span>&#x2013;</span>
- <input type="date" id="df-end">
+ <input type="date" id="df-end" min="2000-01-01" max="2179-12-31">
+</div>
+<div id="calc-prog">
+ <div id="calc-prog-txt"></div>
+ <div id="calc-prog-bar"><div id="calc-prog-fill"></div></div>
 </div>
 <div id="status-badge">Computing&#x2026;</div>
 <button id="settings-btn" title="Settings">&#x2699;</button>
@@ -190,8 +203,8 @@ document.body.insertAdjacentHTML('beforeend', `
   </div>
   <h4>Time window</h4>
   <div class="st-grid">
-   <label>Start<input id="st-start" type="date"></label>
-   <label>End<input id="st-end" type="date"></label>
+   <label>Start<input id="st-start" type="date" min="2000-01-01" max="2179-12-31"></label>
+   <label>End<input id="st-end" type="date" min="2000-01-01" max="2179-12-31"></label>
    <label>Step h<input id="st-step" type="number" step="0.25" min="0.25" max="24"></label>
   </div>
   <h4>Filters</h4>
@@ -858,8 +871,8 @@ function _encodeHash(extra){
   v.setUint16(14,C.minDistM||0);
   v.setInt8(16,  Math.round(C.maxSunAltDeg*2));
   v.setUint8(17, C.minMoonIllumPct||0);
-  v.setUint16(18,Math.round((startMS-_EPOCH)/86400000));
-  v.setUint16(20,Math.round((endMS  -_EPOCH)/86400000));
+  v.setUint16(18,Math.floor((startMS-_EPOCH)/86400000));
+  v.setUint16(20,Math.floor((endMS  -_EPOCH)/86400000));
   if(hasShot){
     v.setInt32(22, Math.round(extra.sLat*1e5));
     v.setInt32(26, Math.round(extra.sLon*1e5));
@@ -1301,26 +1314,35 @@ document.getElementById('gps-btn').onclick=()=>{
 };
 
 // ── Weather (Open-Meteo) ──────────────────────────────────────────────────────
-// Hourly cloud layers, rain chance and visibility at the object, 16 days
-// ahead, fetched per location and refreshed hourly. Cloud forecasts are only
+// Hourly cloud layers, rain chance and visibility at the object, a week
+// ahead, fetched per location and refreshed hourly — and only when some shown
+// moment falls in that week, so past or far-future ranges never hit the API.
+// A failed request isn't retried for WX_RETRY_MS. Cloud forecasts are only
 // reliable for a few days, so later ones are marked uncertain and never used
 // to fade ribbons. Low and mid cloud hide the moon; thin high cloud usually
 // doesn't, so the rating weighs them differently.
-const WX_UNCERTAIN_DAYS=5;
-let WX=null,wxLoading=null,wxCredit=false,lastShapeCount=0,lastMomentsMS=[];
+const WX_UNCERTAIN_DAYS=5,WX_DAYS=7,WX_RETRY_MS=600000;
+let WX=null,wxLoading=null,wxFailed=null,wxCredit=false,lastShapeCount=0,lastMomentsMS=[];
 function wxKey(){return CONFIG.objLat.toFixed(3)+','+CONFIG.objLon.toFixed(3);}
-function loadWeather(){
+function inForecastWindow(ms){
+  const now=Date.now();
+  return ms>=now-3600000&&ms<=now+WX_DAYS*86400000;
+}
+function loadWeather(momentsMS){
+  if(!momentsMS.some(inForecastWindow))return;
   const key=wxKey();
   if(WX&&WX.key===key&&Date.now()-WX.fetched<3600000)return;
   if(wxLoading===key)return;
+  if(wxFailed&&wxFailed.key===key&&Date.now()-wxFailed.at<WX_RETRY_MS)return;
   wxLoading=key;
   fetch('https://api.open-meteo.com/v1/forecast?latitude='+CONFIG.objLat.toFixed(4)+
     '&longitude='+CONFIG.objLon.toFixed(4)+
     '&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,precipitation_probability,visibility'+
-    '&forecast_days=16&timeformat=unixtime')
+    '&forecast_days='+(WX_DAYS+1)+'&timeformat=unixtime')
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{
       if(wxLoading!==key)return; // location changed meanwhile
+      wxFailed=null;
       const h=d.hourly;
       WX={key,fetched:Date.now(),t0:h.time[0]*1000,low:h.cloud_cover_low,
           mid:h.cloud_cover_mid,high:h.cloud_cover_high,
@@ -1334,7 +1356,8 @@ function loadWeather(){
       if(lastArgs&&document.getElementById('pv-overlay').classList.contains('open'))
         render(...lastArgs);
     })
-    .catch(()=>{}) // no forecast: everything simply shows without weather
+    // No forecast: everything simply shows without weather.
+    .catch(()=>{wxFailed={key,at:Date.now()};})
     .finally(()=>{if(wxLoading===key)wxLoading=null;});
 }
 function wxRating(w){
@@ -1345,7 +1368,7 @@ function wxRating(w){
 }
 // Forecast for the hour nearest to ms, or null if there is none.
 function weatherAt(ms){
-  if(!WX||WX.key!==wxKey())return null;
+  if(!WX||WX.key!==wxKey()||!inForecastWindow(ms))return null;
   const i=Math.round((ms-WX.t0)/3600000);
   if(i<0||i>=WX.low.length||WX.low[i]==null)return null;
   const w={low:WX.low[i],mid:WX.mid[i],high:WX.high[i],pp:WX.pp[i],vis:WX.vis[i],
@@ -1374,6 +1397,7 @@ function applyWeatherStyles(){
   });
 }
 function updateStatusBadge(){
+  if(building)return; // the totals are for the previous range until it finishes
   let txt=lastShapeCount+' shapes ('+lastMomentsMS.length+' moments)';
   const n={good:0,fair:0,bad:0};let any=false;
   lastMomentsMS.forEach(ms=>{
@@ -1435,68 +1459,108 @@ function ribbonPolygons(left,right,hf){
   if(run)polys.push(run);
   return polys.map(({l,r})=>[...l,...r.reverse()]);
 }
+// Moments are computed in chunks of ~CHUNK_MS so the page stays responsive and
+// a progress bar with an estimated finish time can be shown. Ribbons appear on
+// the map as they are found. Starting a new build cancels the running one.
+const CHUNK_MS=40;
+let buildGen=0,building=false;
+function fmtETA(s){
+  if(s<60)return Math.max(1,Math.round(s))+' s';
+  const m=Math.round(s/60);
+  return m<60?m+' min':Math.floor(m/60)+' h '+(m%60)+' min';
+}
+function showProgress(done,total,t0){
+  const el=document.getElementById('calc-prog');
+  if(done==null){el.classList.remove('on');return;}
+  const frac=total?done/total:1,elapsed=(performance.now()-t0)/1000;
+  // Wait for a little data before extrapolating, or the estimate jumps around.
+  const left=frac>.02&&elapsed>.3?elapsed/frac*(1-frac):null;
+  const eta=left!=null?' \xB7 about '+fmtETA(left)+' left':'';
+  // For longer runs, also the clock time it should be done by.
+  const fin=left>=60?' (done ~'+new Date(Date.now()+left*1000)
+    .toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+')':'';
+  document.getElementById('calc-prog-txt').textContent=
+    'Computing… '+Math.floor(frac*100)+'%'+eta+fin;
+  document.getElementById('calc-prog-fill').style.width=(frac*100).toFixed(1)+'%';
+  el.classList.add('on');
+}
 function buildAndRenderArrows(startDate,endDate){
   clearArrows();
+  const gen=++buildGen;
+  building=true;
   document.getElementById('status-badge').textContent='Computing…';
-  setTimeout(()=>{
-    const DEG=Math.PI/180,R=6371000;
-    const startMS=new Date(startDate+'T00:00:00Z').getTime();
-    const endMS  =new Date(endDate  +'T23:59:59Z').getTime();
-    const fullStartMS=new Date(CONFIG.startISO).getTime();
-    const fullEndMS  =new Date(CONFIG.endISO  ).getTime();
-    const stepMS=CONFIG.stepH*3600000;
-    const halfLat=CONFIG.mapHalfKm*1000/(R*DEG);
-    const halfLon=CONFIG.mapHalfKm*1000/(R*Math.cos(CONFIG.objLat*DEG)*DEG);
-    const results=[];
-    for(let tMS=fullStartMS;tMS<=fullEndMS;tMS+=stepMS){
-      if(tMS<startMS||tMS>endMS)continue;
-      const utcStr=msToUtcStr(tMS);
-      const{altDeg,azDeg,illPct,sunAltDeg}=
-        moonAltAzJS(CONFIG.objLat,CONFIG.objLon,CONFIG.objElev,utcStr);
-      if(altDeg<CONFIG.minAltDeg||sunAltDeg>CONFIG.maxSunAltDeg
-         ||illPct<CONFIG.minMoonIllumPct)continue;
+  const DEG=Math.PI/180,R=6371000;
+  const startMS=new Date(startDate+'T00:00:00Z').getTime();
+  const endMS  =new Date(endDate  +'T23:59:59Z').getTime();
+  const stepMS=CONFIG.stepH*3600000;
+  // Keep the time steps on the grid of the configured start, so narrowing the
+  // range (e.g. from a shot link) yields the same moments.
+  const gridMS=new Date(CONFIG.startISO).getTime();
+  const firstMS=gridMS+Math.ceil((startMS-gridMS)/stepMS)*stepMS;
+  const total=Math.max(0,Math.floor((endMS-firstMS)/stepMS)+1);
+  const halfLat=CONFIG.mapHalfKm*1000/(R*DEG);
+  const halfLon=CONFIG.mapHalfKm*1000/(R*Math.cos(CONFIG.objLat*DEG)*DEG);
+  const tSpan=endMS-startMS||1;
+  drawColorbar(startMS,endMS);
+  const moments=[];let shapeCount=0,i=0;
+  const t0=performance.now();
+  showProgress(0,total,t0);
 
-      // Moon alt/az across the ±10 minute sweep — shared by every height level.
-      const sweep=[-10,-5,0,5,10].map(dm=>{
-        const s=msToUtcStr(tMS+dm*60000);
-        const{altDeg:a,azDeg:z}=moonAltAzJS(CONFIG.objLat,CONFIG.objLon,CONFIG.objElev,s);
-        return{a,z};
-      });
+  function computeMoment(tMS){
+    const utcStr=msToUtcStr(tMS);
+    const{altDeg,illPct,sunAltDeg}=
+      moonAltAzJS(CONFIG.objLat,CONFIG.objLon,CONFIG.objElev,utcStr);
+    if(altDeg<CONFIG.minAltDeg||sunAltDeg>CONFIG.maxSunAltDeg
+       ||illPct<CONFIG.minMoonIllumPct)return;
 
-      const ribbons=HEIGHT_FRACTIONS.map(hf=>({
-        hf,
-        left: sweep.map(({a,z})=>computeShadowPoint(a,z-MOON_RADIUS_DEG,hf)),
-        right:sweep.map(({a,z})=>computeShadowPoint(a,z+MOON_RADIUS_DEG,hf)),
-      }));
+    // Moon alt/az across the ±10 minute sweep — shared by every height level.
+    const sweep=[-10,-5,0,5,10].map(dm=>{
+      const s=msToUtcStr(tMS+dm*60000);
+      const{altDeg:a,azDeg:z}=moonAltAzJS(CONFIG.objLat,CONFIG.objLon,CONFIG.objElev,s);
+      return{a,z};
+    });
 
-      // Map-bounds / min-distance filtering still keys off the full-height
-      // (tip) track, same reference point the original algorithm used.
-      const tip=ribbons[ribbons.length-1];
-      const pc=tip.left[2]||tip.right[2]||tip.left[0]||tip.right[0];
-      if(!pc)continue;
-      if(Math.abs(pc[0]-CONFIG.objLat)>halfLat
-         ||Math.abs(pc[1]-CONFIG.objLon)>halfLon)continue;
-      if(haversine(CONFIG.objLat,CONFIG.objLon,pc[0],pc[1])<CONFIG.minDistM)continue;
+    const ribbons=HEIGHT_FRACTIONS.map(hf=>({
+      hf,
+      left: sweep.map(({a,z})=>computeShadowPoint(a,z-MOON_RADIUS_DEG,hf)),
+      right:sweep.map(({a,z})=>computeShadowPoint(a,z+MOON_RADIUS_DEG,hf)),
+    }));
 
-      results.push({tMS,utcStr,ribbons});
-    }
-    const tSpan=endMS-startMS||1;
-    drawColorbar(startMS,endMS);
-    let shapeCount=0;
-    results.forEach(r=>{
-      const color=plasmaColor((r.tMS-startMS)/tSpan);
-      r.ribbons.forEach(({hf,left,right})=>{
-        ribbonPolygons(left,right,hf).forEach(poly=>{
-          addArrow({poly,color,tMS:r.tMS,tCenter:r.utcStr});
-          shapeCount++;
-        });
+    // Map-bounds / min-distance filtering still keys off the full-height
+    // (tip) track, same reference point the original algorithm used.
+    const tip=ribbons[ribbons.length-1];
+    const pc=tip.left[2]||tip.right[2]||tip.left[0]||tip.right[0];
+    if(!pc)return;
+    if(Math.abs(pc[0]-CONFIG.objLat)>halfLat
+       ||Math.abs(pc[1]-CONFIG.objLon)>halfLon)return;
+    if(haversine(CONFIG.objLat,CONFIG.objLon,pc[0],pc[1])<CONFIG.minDistM)return;
+
+    moments.push(tMS);
+    const color=plasmaColor((tMS-startMS)/tSpan);
+    ribbons.forEach(({hf,left,right})=>{
+      ribbonPolygons(left,right,hf).forEach(poly=>{
+        addArrow({poly,color,tMS,tCenter:utcStr});
+        shapeCount++;
       });
     });
-    lastShapeCount=shapeCount;lastMomentsMS=results.map(r=>r.tMS);
+  }
+  function chunk(){
+    if(gen!==buildGen)return;
+    const until=performance.now()+CHUNK_MS;
+    while(i<total&&performance.now()<until)computeMoment(firstMS+i++*stepMS);
+    if(i<total){
+      showProgress(i,total,t0);
+      setTimeout(chunk,0);
+      return;
+    }
+    showProgress(null);
+    building=false;
+    lastShapeCount=shapeCount;lastMomentsMS=moments;
     updateStatusBadge();
     applyWeatherStyles();
-    loadWeather();
-  },10);
+    loadWeather(moments);
+  }
+  setTimeout(chunk,10);
 }
 
 // ── Settings hint (first-load callout) ────────────────────────────────────────
@@ -1566,9 +1630,8 @@ document.getElementById('st-ok').onclick=async()=>{
 
   const fullStart=CONFIG.startISO.slice(0,10);
   const fullEnd  =CONFIG.endISO  .slice(0,10);
-  const ds=document.getElementById('df-start'),de=document.getElementById('df-end');
-  ds.min=de.min=fullStart;ds.max=de.max=fullEnd;
-  ds.value=fullStart;de.value=fullEnd;
+  document.getElementById('df-start').value=fullStart;
+  document.getElementById('df-end').value=fullEnd;
   buildAndRenderArrows(fullStart,fullEnd);
 };
 
@@ -1585,7 +1648,6 @@ document.getElementById('st-ok').onclick=async()=>{
   const fullStart=CONFIG.startISO.slice(0,10);
   const fullEnd  =CONFIG.endISO  .slice(0,10);
   const ds=document.getElementById('df-start'),de=document.getElementById('df-end');
-  ds.min=de.min=fullStart;ds.max=de.max=fullEnd;
   // If opened from a shot link, narrow the date filter to ±1 day around the shot
   if(CONFIG._shotMS){
     const s=new Date(Math.max(new Date(fullStart),new Date(CONFIG._shotMS-86400000))).toISOString().slice(0,10);
@@ -1600,11 +1662,19 @@ document.getElementById('st-ok').onclick=async()=>{
   CONFIG.objElev=sampleGrid(CONFIG.objLat,CONFIG.objLon);
 
   buildAndRenderArrows(ds.value,de.value);
-  ['df-start','df-end'].forEach(id=>
-    document.getElementById(id).addEventListener('input',()=>
-      buildAndRenderArrows(
-        document.getElementById('df-start').value,
-        document.getElementById('df-end').value)));
+  // The date bar sets the computed range (same as Start/End in the settings).
+  // Dates before 2000 or after 2179 don't fit the shareable link.
+  [ds,de].forEach(el=>el.addEventListener('input',()=>{
+    if(!ds.value||!de.value)return;
+    const ok=d=>d>='2000-01-01'&&d<='2179-12-31';
+    if(!ok(ds.value)||!ok(de.value))return;
+    if(ds.value>de.value)(el===ds?de:ds).value=el.value;
+    CONFIG.startISO=ds.value+'T00:00:00Z';
+    CONFIG.endISO  =de.value+'T23:59:59Z';
+    CONFIG._shotMS=null;
+    syncURL();
+    buildAndRenderArrows(ds.value,de.value);
+  }));
 })();
 
 })(); // end application IIFE

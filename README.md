@@ -40,7 +40,7 @@ Only moments that pass all of the following are shown — these help ensure the 
 - Shooting location within the map area and beyond a minimum distance from the object
 
 ### Weather
-Luna fetches a 16-day hourly forecast for the object's location from [Open-Meteo](https://open-meteo.com/) (no API key needed) and rates each moment by what actually hides the moon: low and mid cloud and rain chance weigh heavily, thin high cloud only a little.
+Luna fetches a 7-day hourly forecast for the object's location from [Open-Meteo](https://open-meteo.com/) (no API key needed) — only when at least one shown moment falls within the next 7 days, at most once an hour per location, and not again for 10 minutes after a failed request and rates each moment by what actually hides the moon: low and mid cloud and rain chance weigh heavily, thin high cloud only a little.
 - The preview shows cloud cover (low / mid / high), rain chance and visibility for the selected minute.
 - Ribbons of moments forecast to be clouded out are faded on the map, and the status badge counts clear ✨, partly cloudy ⛅ and cloudy ☁️ moments.
 - Cloud forecasts are only reliable a few days ahead: beyond 5 days the preview marks the forecast as uncertain, and those moments are never faded or counted.
@@ -64,7 +64,7 @@ Click the ⚙ button to change:
 | Timezone | Display timezone for timestamps (IANA name or `local`) |
 | Show my location (GPS) | Blue dot on the map, a ◎ button to centre on it, and in the preview how far and in which direction the selected spot is from you. Off by default; saved on this device only, never in shared links |
 
-The date filter bar at the top of the map lets you narrow the displayed ribbons without a full recalculation.
+The date bar at the top of the map sets the date range directly (the same range as Start / End in the settings) and accepts any dates from 2000 to 2179. While ribbons are computed, a progress bar shows how far along it is and an estimate of when it will finish; ribbons appear on the map as they are found, and changing the range cancels a running calculation.
 
 ## Tech stack
 
