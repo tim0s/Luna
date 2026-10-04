@@ -102,7 +102,7 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 .st-grid label,.st-solo label{display:flex;flex-direction:column;
   font-size:11px;color:#64748b;gap:3px;}
 .st-solo{margin-top:7px;}
-#st-box input[type=number],#st-box input[type=date],#ob-box input{
+#st-box input[type=number],#st-box input[type=date],#ob-box input:not([type=range]),#ob-box select{
   background:#f8fafc;color:#1e293b;border:1px solid #cbd5e1;
   border-radius:4px;padding:4px 7px;font-size:12px;width:100%;box-sizing:border-box;}
 #st-footer,#ob-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:20px;}
@@ -274,7 +274,17 @@ document.body.insertAdjacentHTML('beforeend', `
     <small style="color:#9ca3af;font-size:10px">Tap the object on the map, or paste coordinates, e.g. from Google Maps (right-click the spot and click the numbers to copy them).</small>
    </label>
    <label>Height m<input id="ob-h" type="number" step="1" min="1" max="9999"></label>
-   <label>Width m<input id="ob-w" type="number" step="1" min="1" max="9999"></label>
+   <label>Width at base m<input id="ob-w" type="number" step="1" min="1" max="9999"></label>
+   <label>Shape
+    <select id="ob-shape">
+     <option value="column">&#x25AE; Column</option>
+     <option value="pyramid">&#x25B2; Pyramid</option>
+    </select>
+   </label>
+   <label>Transparency <span id="ob-transp-val"></span>
+    <input id="ob-transp" type="range" min="0" max="90" step="5">
+   </label>
+   <small style="grid-column:span 2;color:#9ca3af;font-size:10px">How the object is drawn in the preview. A pyramid narrows to a point at the top; transparency lets the moon show through open structures like lattice towers.</small>
   </div>
   <div id="ob-err"></div>
   <div id="ob-footer">
@@ -482,7 +492,7 @@ const FRAG=`precision mediump float;
 uniform vec2 uRes;
 uniform float uCamAz,uCamEl,uHFov,uVFov;
 uniform float uMoonAz,uMoonAlt,uMoonRad,uMoonK,uSunAz,uSunAlt;
-uniform float uObjAz,uObjElC,uObjHH,uObjHW;
+uniform float uObjAz,uObjElC,uObjHH,uObjHW,uObjPyr,uObjAlpha;
 uniform float uSkyB,uBright,uBlink,uHatch;
 uniform sampler2D uSL;
 float wd(float a,float b){return mod(a-b+180.,360.)-180.;}
@@ -512,8 +522,10 @@ void main(){
     col+=vec3(.9,.85,.5)*exp(-md/(uMoonRad*3.))*.08;
   }
   float oaz=wd(pAz,uObjAz),oel=pEl-uObjElC;
-  if(abs(oaz)<uObjHW&&abs(oel)<uObjHH){
-    if(pEl>=nearEl)col=vec3(.04,.04,.04);
+  // A pyramid narrows linearly from the full width at its base to a point.
+  float ohw=uObjHW*mix(1.,.5-.5*oel/uObjHH,uObjPyr);
+  if(abs(oaz)<ohw&&abs(oel)<uObjHH){
+    if(pEl>=nearEl)col=mix(col,vec3(.04,.04,.04),uObjAlpha);
     else{
       // Hidden behind terrain in front of it: a blinking red hatched ghost
       float on=smoothstep(.2,.8,.5+.5*sin(uBlink*6.2832));
@@ -555,7 +567,7 @@ function initGL(){
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   ['uRes','uCamAz','uCamEl','uHFov','uVFov','uMoonAz','uMoonAlt','uMoonRad',
    'uMoonK','uSunAz','uSunAlt',
-   'uObjAz','uObjElC','uObjHH','uObjHW','uSkyB','uBright','uBlink','uHatch','uSL']
+   'uObjAz','uObjElC','uObjHH','uObjHW','uObjPyr','uObjAlpha','uSkyB','uBright','uBlink','uHatch','uSL']
     .forEach(n=>uL[n]=gl.getUniformLocation(prog,n));
   gl.uniform1i(uL.uSL,0);
   glReady=true;
@@ -894,14 +906,16 @@ const HEIGHT_FRACTIONS=[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0];
 //   17   uint8  minIllum         18-19 uint16 start(days since 2000-01-01)
 //   20-21 uint16 end(days)       [22-25 int32 sLat×1e5  26-29 int32 sLon×1e5
 //                                  30-33 uint32 shot(Unix s)]
-//   [last byte uint8 flags, only when non-default: bit 0 = refraction off;
+//   [last byte uint8 flags, only when non-default: bit 0 = refraction off,
+//    bit 1 = pyramid, bits 2-6 = object transparency / 5 %;
 //    total length 23 or 35]
 // Timezone appended as ".IANA_name" when non-default.
 const LUNA_BASE='https://tim0s.github.io/Luna/';
 const _EPOCH=Date.UTC(2000,0,1);
 function _encodeHash(extra){
   const C=CONFIG,hasShot=extra&&extra.shot!=null;
-  const flags=C.refraction===false?1:0;
+  const flags=(C.refraction===false?1:0)|(C.objShape==='pyramid'?2:0)
+    |Math.round((C.objTransp||0)/5)<<2;
   const buf=new ArrayBuffer((hasShot?34:22)+(flags?1:0));
   const v=new DataView(buf);
   const startMS=new Date(extra&&extra.startISO||C.startISO).getTime();
@@ -1262,6 +1276,8 @@ function render(la,lo,arrow){
   gl.uniform1f(uL.uSunAz,mm[4]);gl.uniform1f(uL.uSunAlt,mm[3]);
   gl.uniform1f(uL.uObjAz,caz);gl.uniform1f(uL.uObjElC,oelC);
   gl.uniform1f(uL.uObjHH,ohh);gl.uniform1f(uL.uObjHW,ohw);
+  gl.uniform1f(uL.uObjPyr,CONFIG.objShape==='pyramid'?1:0);
+  gl.uniform1f(uL.uObjAlpha,1-(CONFIG.objTransp||0)/100);
   gl.uniform1f(uL.uSkyB,skyB);
   gl.uniform1f(uL.uBright,parseFloat(document.getElementById('pv-bright').value)||1);
   gl.uniform1f(uL.uHatch,8*dpr);
@@ -1620,6 +1636,8 @@ function buildAndRenderArrows(startDate,endDate){
 })();
 
 if(!CONFIG.objW)CONFIG.objW=5;
+if(!CONFIG.objShape)CONFIG.objShape='column';
+if(CONFIG.objTransp==null)CONFIG.objTransp=0;
 if(!CONFIG.timezone)CONFIG.timezone='local';
 
 // ── Objects ───────────────────────────────────────────────────────────────────
@@ -1630,24 +1648,42 @@ if(!CONFIG.timezone)CONFIG.timezone='local';
 const OBJ_KEY='luna-objects';
 // The lookout tower on the Uetliberg (Aussichtsturm Uto Kulm, OSM way
 // 334161815) — not the 187 m TV tower 200 m north of it. It is 70 m tall
-// with the antenna on top; 40 m leaves the antenna out of the shot.
+// with the antenna on top; 40 m leaves the antenna out of the shot. Its
+// triangular footprint is ~16 m across, and as an open steel lattice that
+// narrows upwards it's drawn as a half-transparent pyramid.
 const DEFAULT_OBJECTS=[
-  {id:'uetliberg',name:'Uetliberg lookout tower',lat:47.349540,lon:8.491359,h:40,w:5}];
+  {id:'uetliberg',name:'Uetliberg lookout tower',lat:47.349540,lon:8.491359,
+   h:40,w:16,shape:'pyramid',transp:50}];
 let objects=DEFAULT_OBJECTS,storedSel=objects[0].id,selObjId,sharedObj=null;
 try{
   const st=JSON.parse(localStorage.getItem(OBJ_KEY));
   if(st&&Array.isArray(st.list)&&st.list.length){objects=st.list;storedSel=st.sel;}
 }catch(e){}
+// Objects saved before shapes existed are columns. Before that, Uetliberg was
+// a 5 m column: such saved entries and links get the current default instead.
+const UETLI=DEFAULT_OBJECTS[0];
+function isOldUetliberg(o){
+  return o.lat===UETLI.lat&&o.lon===UETLI.lon&&o.h===40&&o.w===5
+    &&(o.shape||'column')==='column'&&!o.transp;
+}
+objects=objects.map(o=>o.id===UETLI.id&&isOldUetliberg(o)?UETLI
+  :{...o,shape:o.shape||'column',transp:o.transp||0});
+if(isOldUetliberg({lat:CONFIG.objLat,lon:CONFIG.objLon,h:CONFIG.objH,w:CONFIG.objW,
+    shape:CONFIG.objShape,transp:CONFIG.objTransp})){
+  CONFIG.objW=UETLI.w;CONFIG.objShape=UETLI.shape;CONFIG.objTransp=UETLI.transp;
+}
 function isCurrentObj(o){
   return Math.abs(o.lat-CONFIG.objLat)<2e-6&&Math.abs(o.lon-CONFIG.objLon)<2e-6
-    &&Math.round(o.h)===Math.round(CONFIG.objH)&&Math.round(o.w)===Math.round(CONFIG.objW);
+    &&Math.round(o.h)===Math.round(CONFIG.objH)&&Math.round(o.w)===Math.round(CONFIG.objW)
+    &&o.shape===CONFIG.objShape&&o.transp===CONFIG.objTransp;
 }
 {
   const cur=objects.find(o=>o.id===storedSel&&isCurrentObj(o))||objects.find(isCurrentObj);
   if(cur)selObjId=cur.id;
   else{
     sharedObj={id:'shared',name:'Shared object',
-      lat:CONFIG.objLat,lon:CONFIG.objLon,h:CONFIG.objH,w:CONFIG.objW};
+      lat:CONFIG.objLat,lon:CONFIG.objLon,h:CONFIG.objH,w:CONFIG.objW,
+      shape:CONFIG.objShape,transp:CONFIG.objTransp};
     selObjId=sharedObj.id;
   }
 }
@@ -1703,8 +1739,10 @@ function rebuildAll(){
 }
 async function applyObject(o){
   const moved=o.lat!==CONFIG.objLat||o.lon!==CONFIG.objLon;
-  const changed=moved||o.h!==CONFIG.objH; // the width only matters in the preview
+  // Width, shape and transparency only matter in the preview.
+  const changed=moved||o.h!==CONFIG.objH;
   CONFIG.objLat=o.lat;CONFIG.objLon=o.lon;CONFIG.objH=o.h;CONFIG.objW=o.w;
+  CONFIG.objShape=o.shape;CONFIG.objTransp=o.transp;
   CONFIG._shotMS=null;
   syncURL();
   if(!_map)return; // init picks up CONFIG
@@ -1745,12 +1783,20 @@ function openObjEditor(o){
   document.getElementById('ob-coords').value=c?fmtCoords(c[0],c[1]):'';
   document.getElementById('ob-h').value=o?o.h:50;
   document.getElementById('ob-w').value=o?o.w:5;
+  document.getElementById('ob-shape').value=o?o.shape:'column';
+  document.getElementById('ob-transp').value=o?o.transp:0;
+  showTransp();
   document.getElementById('ob-err').textContent='';
   document.getElementById('ob-del').style.display=
     o&&o!==sharedObj&&objects.length>1?'':'none';
   document.getElementById('ob-overlay').classList.add('open');
   document.getElementById('ob-name').focus();
 }
+function showTransp(){
+  document.getElementById('ob-transp-val').textContent=
+    document.getElementById('ob-transp').value+' %';
+}
+document.getElementById('ob-transp').oninput=showTransp;
 function closeObjEditor(){document.getElementById('ob-overlay').classList.remove('open');}
 document.getElementById('ob-cancel').onclick=closeObjEditor;
 document.getElementById('ob-pick').onclick=()=>{
@@ -1777,7 +1823,9 @@ document.getElementById('ob-ok').onclick=()=>{
   if(!(w>=1&&w<=9999)){err.textContent='Width must be between 1 and 9999 m.';return;}
   const name=document.getElementById('ob-name').value.trim()||fmtCoords(c[0],c[1]);
   const isSaved=editObj&&editObj!==sharedObj;
-  const o={id:isSaved?editObj.id:'o'+Date.now().toString(36),name,lat:c[0],lon:c[1],h,w};
+  const o={id:isSaved?editObj.id:'o'+Date.now().toString(36),name,lat:c[0],lon:c[1],h,w,
+    shape:document.getElementById('ob-shape').value,
+    transp:Math.round(document.getElementById('ob-transp').value/5)*5};
   if(isSaved)objects[objects.indexOf(editObj)]=o;
   else objects.push(o);
   if(editObj===sharedObj)sharedObj=null;

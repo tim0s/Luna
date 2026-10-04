@@ -28,7 +28,7 @@ For each qualifying timestamp, the code traces a ray from a given fraction of th
 ### Scene preview (WebGL)
 The preview is rendered with a WebGL fragment shader that:
 - Reads a 1024-sample skyline texture (maximum terrain elevation angle at each horizontal pixel column) computed via ray-marching from the observer position
-- Draws sky, terrain silhouette, moon disc + glow, and the object silhouette
+- Draws sky, terrain silhouette, moon disc + glow, and the object silhouette (a column or pyramid, blended over the sky and moon by its transparency)
 - Keeps a second skyline of only the terrain in front of the object: any part of the object hidden behind it blinks as a red hatched ghost, with a "hidden by terrain" label, instead of being drawn as if visible
 - Adjusts sky brightness based on sun altitude (night → deep blue / day → pale)
 
@@ -48,7 +48,13 @@ Luna fetches a 7-day hourly forecast for the object's location from [Open-Meteo]
 
 ## Objects
 
-The dropdown at the top of the map picks the object to photograph the moon behind; Luna computes for one object at a time. It starts with the lookout tower on the Uetliberg in Zurich. Choose **＋ Add object…** to add your own: give it a name, its position — tap it on the map with **📍 Pick on map**, or paste coordinates, e.g. from Google Maps — and its height and width in metres. The ✎ button next to the dropdown edits or deletes the selected object.
+The dropdown at the top of the map picks the object to photograph the moon behind; Luna computes for one object at a time. It starts with the lookout tower on the Uetliberg in Zurich, up to its 40 m platform level (the antenna on top is left out). Choose **＋ Add object…** to add your own: give it a name, its position — tap it on the map with **📍 Pick on map**, or paste coordinates, e.g. from Google Maps — and its height and width at the base in metres.
+
+Two settings control how the object is drawn in the scene preview:
+- **Shape** — a *column* (same width all the way up) or a *pyramid* (narrowing from the base width to a point at the top).
+- **Transparency** — 0–90 %. For open structures such as lattice towers, so the moon shows through them. The Uetliberg tower is a 16 m wide pyramid at 50 %.
+
+They only change the preview, not where the ribbons are. The ✎ button next to the dropdown edits or deletes the selected object.
 
 Your objects and the selected one are saved in this browser, so Luna opens with the same list next time. A shared link opens at the object it was made for; if that object isn't in your list it appears as *Shared object (not saved)*, and ✎ lets you name and save it.
 

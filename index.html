@@ -18,7 +18,8 @@
 
     const CONFIG={
       objLat:47.349540, objLon:8.491359,
-      objH:40, objElev:0,
+      objH:40, objW:16, objElev:0,
+      objShape:'pyramid', objTransp:50,
       startISO:_isoDay(_t)+'T00:00:00Z',
       endISO:_isoDay(_t7)+'T23:00:00Z',
       stepH:0.5, minAltDeg:2, minDistM:1500,
@@ -32,7 +33,10 @@
     try{
       const s=JSON.parse(localStorage.getItem('luna-objects'));
       const o=s&&s.list.find(o=>o.id===s.sel);
-      if(o){CONFIG.objLat=o.lat;CONFIG.objLon=o.lon;CONFIG.objH=o.h;CONFIG.objW=o.w;}
+      if(o){
+        CONFIG.objLat=o.lat;CONFIG.objLon=o.lon;CONFIG.objH=o.h;CONFIG.objW=o.w;
+        CONFIG.objShape=o.shape||'column';CONFIG.objTransp=o.transp||0;
+      }
     }catch(e){}
 
     // Apply URL hash params (allows shareable links for specific shots).
@@ -46,7 +50,8 @@
         if(p.has('lat'))     CONFIG.objLat=parseFloat(p.get('lat'));
         if(p.has('lon'))     CONFIG.objLon=parseFloat(p.get('lon'));
         if(p.has('h'))       CONFIG.objH=parseFloat(p.get('h'));
-        if(p.has('w'))       CONFIG.objW=parseFloat(p.get('w'));
+        CONFIG.objW=p.has('w')?parseFloat(p.get('w')):5;
+        CONFIG.objShape='column';CONFIG.objTransp=0;
         if(p.has('start'))   CONFIG.startISO=p.get('start')+'T00:00:00Z';
         if(p.has('end'))     CONFIG.endISO=p.get('end')+'T23:00:00Z';
         if(p.has('step'))    CONFIG.stepH=parseFloat(p.get('step'));
@@ -73,7 +78,7 @@
         CONFIG.objLat          =v.getInt32(0) /1e6;
         CONFIG.objLon          =v.getInt32(4) /1e6;
         CONFIG.objH            =v.getUint16(8);
-        const w=v.getUint16(10); if(w)CONFIG.objW=w;
+        CONFIG.objW            =v.getUint16(10)||5;
         CONFIG.stepH           =v.getUint8(12)/4;
         CONFIG.minAltDeg       =v.getInt8(13) /2;
         CONFIG.minDistM        =v.getUint16(14);
@@ -82,9 +87,12 @@
         CONFIG.startISO        =dayToISO(v.getUint16(18))+'T00:00:00Z';
         CONFIG.endISO          =dayToISO(v.getUint16(20))+'T23:00:00Z';
         if(tz)CONFIG.timezone=tz;
-        // Optional trailing flags byte (lengths 23 / 35): bit 0 = refraction off
-        if(buf.byteLength===23||buf.byteLength===35)
-          CONFIG.refraction=!(v.getUint8(buf.byteLength-1)&1);
+        // Optional trailing flags byte (lengths 23 / 35): bit 0 = refraction off,
+        // bit 1 = pyramid, bits 2-6 = object transparency / 5 %
+        const f=buf.byteLength===23||buf.byteLength===35?v.getUint8(buf.byteLength-1):0;
+        CONFIG.refraction=!(f&1);
+        CONFIG.objShape=f&2?'pyramid':'column';
+        CONFIG.objTransp=(f>>2&31)*5;
         if(buf.byteLength>=34){
           CONFIG._shotLat=v.getInt32(22)/1e5;
           CONFIG._shotLon=v.getInt32(26)/1e5;
