@@ -47,6 +47,16 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 #settings-hint::after{content:'';position:absolute;top:50%;right:-8px;
   transform:translateY(-50%);border:5px solid transparent;
   border-left-color:rgba(30,41,59,.9);}
+#obj-bar{position:fixed;top:10px;left:50%;transform:translateX(-50%);
+  z-index:9998;background:rgba(255,255,255,.92);padding:4px 4px 4px 10px;
+  border-radius:6px;box-shadow:1px 1px 4px rgba(0,0,0,.3);font:12px sans-serif;
+  display:flex;align-items:center;gap:6px;max-width:calc(100vw - 150px);box-sizing:border-box;}
+#obj-sel{min-width:0;max-width:260px;border:1px solid #ccc;border-radius:3px;
+  padding:2px 5px;font-size:13px;background:#fff;color:#1e293b;}
+#obj-edit{flex:none;border:none;background:none;cursor:pointer;font-size:15px;
+  padding:2px 6px;border-radius:4px;}
+#obj-edit:hover{background:#e2e8f0;}
+.leaflet-container.obj-picking{cursor:crosshair;}
 #df-bar{position:fixed;top:55px;left:50%;transform:translateX(-50%);
   z-index:9998;background:rgba(255,255,255,.92);padding:5px 14px;
   border-radius:6px;box-shadow:1px 1px 4px rgba(0,0,0,.3);
@@ -79,34 +89,46 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 #pv-gps{display:none;position:absolute;left:8px;bottom:8px;
   background:rgba(15,23,42,.78);color:#fff;font:12px/1.2 sans-serif;
   padding:6px 10px;border-radius:14px;pointer-events:none;white-space:nowrap;}
-#st-overlay{display:none;position:fixed;inset:0;z-index:21000;
+#st-overlay,#ob-overlay{display:none;position:fixed;inset:0;z-index:21000;
   background:rgba(0,0,0,.45);align-items:center;justify-content:center;}
-#st-overlay.open{display:flex;}
-#st-box{background:#fff;color:#1e293b;border-radius:10px;padding:22px 24px;
+#st-overlay.open,#ob-overlay.open{display:flex;}
+#st-box,#ob-box{background:#fff;color:#1e293b;border-radius:10px;padding:22px 24px;
   width:400px;max-width:92vw;box-shadow:0 8px 40px rgba(0,0,0,.25);
   font-family:sans-serif;font-size:13px;}
-#st-box h3{margin:0 0 14px;font-size:14px;color:#0f172a;font-weight:600;}
+#st-box h3,#ob-box h3{margin:0 0 14px;font-size:14px;color:#0f172a;font-weight:600;}
 #st-box h4{font-size:10px;color:#94a3b8;text-transform:uppercase;
   letter-spacing:.07em;margin:14px 0 6px;}
 .st-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px 14px;}
 .st-grid label,.st-solo label{display:flex;flex-direction:column;
   font-size:11px;color:#64748b;gap:3px;}
 .st-solo{margin-top:7px;}
-#st-box input[type=number],#st-box input[type=date]{
+#st-box input[type=number],#st-box input[type=date],#ob-box input{
   background:#f8fafc;color:#1e293b;border:1px solid #cbd5e1;
   border-radius:4px;padding:4px 7px;font-size:12px;width:100%;box-sizing:border-box;}
-#st-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:20px;}
-#st-footer button{background:#3b82f6;color:#fff;border:none;
+#st-footer,#ob-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:20px;}
+#st-footer button,#ob-footer button{background:#3b82f6;color:#fff;border:none;
   border-radius:4px;padding:5px 16px;cursor:pointer;font-size:13px;}
-#st-footer button:hover{background:#2563eb;}
-#st-cancel{background:#e2e8f0!important;color:#475569!important;}
+#st-footer button:hover,#ob-footer button:hover{background:#2563eb;}
+#st-cancel,#ob-cancel{background:#e2e8f0!important;color:#475569!important;}
+#ob-del{background:#fee2e2!important;color:#b91c1c!important;margin-right:auto;}
+#ob-box .ob-coords{display:flex;gap:6px;}
+#ob-pick{flex:none;background:#e2e8f0;color:#334155;border:none;border-radius:4px;
+  padding:0 10px;cursor:pointer;font-size:12px;white-space:nowrap;}
+#ob-pick:hover{background:#cbd5e1;}
+#ob-err{color:#b91c1c;font-size:12px;min-height:16px;margin-top:8px;}
 @media(max-width:600px){
   #df-bar{display:none!important;}
-  #calc-prog{top:12px;}
+  #calc-prog{top:62px;}
+  #obj-bar{left:56px;right:66px;transform:none;max-width:none;}
+  #obj-sel{flex:1;max-width:none;font-size:16px;}
+  #obj-edit{font-size:20px;padding:6px 8px;}
+  #settings-hint{top:62px;right:10px;}
+  #settings-hint::after{top:-10px;right:18px;transform:none;
+    border-left-color:transparent;border-bottom-color:rgba(30,41,59,.9);}
   #settings-btn{padding:10px 14px;font-size:20px;}
   #gps-btn{top:66px;padding:10px 14px;font-size:20px;}
-  #st-overlay{align-items:flex-start;}
-  #st-box{width:100vw;max-width:100vw;height:100dvh;border-radius:0;
+  #st-overlay,#ob-overlay{align-items:flex-start;}
+  #st-box,#ob-box{width:100vw;max-width:100vw;height:100dvh;border-radius:0;
     overflow-y:auto;padding:16px;box-sizing:border-box;}
   .st-grid{grid-template-columns:1fr;}
 }
@@ -177,6 +199,10 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 // ── Inject modal HTML ─────────────────────────────────────────────────────────
 document.body.insertAdjacentHTML('beforeend', `
 <div id="settings-hint">⚙ Change Settings here</div>
+<div id="obj-bar">
+ <select id="obj-sel" title="Object to photograph the moon behind"></select>
+ <button id="obj-edit" title="Edit this object">&#x270E;</button>
+</div>
 <div id="df-bar">
  <span>Show:</span>
  <input type="date" id="df-start" min="2000-01-01" max="2179-12-31">
@@ -194,13 +220,6 @@ document.body.insertAdjacentHTML('beforeend', `
 <div id="st-overlay">
  <div id="st-box">
   <h3>Settings</h3>
-  <h4>Object</h4>
-  <div class="st-grid">
-   <label>Latitude &#xB0;N<input id="st-lat" type="number" step="0.000001"></label>
-   <label>Longitude &#xB0;E<input id="st-lon" type="number" step="0.000001"></label>
-   <label>Height m<input id="st-h" type="number" step="1" min="1"></label>
-   <label>Width m<input id="st-w" type="number" step="1" min="1"></label>
-  </div>
   <h4>Time window</h4>
   <div class="st-grid">
    <label>Start<input id="st-start" type="date" min="2000-01-01" max="2179-12-31"></label>
@@ -239,6 +258,29 @@ document.body.insertAdjacentHTML('beforeend', `
   <div id="st-footer">
    <button id="st-cancel">Cancel</button>
    <button id="st-ok">OK &#x2013; Recalculate</button>
+  </div>
+ </div>
+</div>
+<div id="ob-overlay">
+ <div id="ob-box">
+  <h3 id="ob-title"></h3>
+  <div class="st-grid">
+   <label style="grid-column:span 2">Name<input id="ob-name" type="text" maxlength="60" placeholder="e.g. Uetliberg lookout tower"></label>
+   <label style="grid-column:span 2">Position (latitude, longitude)
+    <span class="ob-coords">
+     <input id="ob-coords" type="text" inputmode="decimal" autocomplete="off" placeholder="47.349540, 8.491359">
+     <button id="ob-pick" type="button">&#x1F4CD; Pick on map</button>
+    </span>
+    <small style="color:#9ca3af;font-size:10px">Tap the object on the map, or paste coordinates, e.g. from Google Maps (right-click the spot and click the numbers to copy them).</small>
+   </label>
+   <label>Height m<input id="ob-h" type="number" step="1" min="1" max="9999"></label>
+   <label>Width m<input id="ob-w" type="number" step="1" min="1" max="9999"></label>
+  </div>
+  <div id="ob-err"></div>
+  <div id="ob-footer">
+   <button id="ob-del">Delete</button>
+   <button id="ob-cancel">Cancel</button>
+   <button id="ob-ok">Save</button>
   </div>
  </div>
 </div>
@@ -643,6 +685,8 @@ document.getElementById('pv-ics').onclick=function(){
   }
   const dist=Math.round(haversine(curLa,curLo,CONFIG.objLat,CONFIG.objLon));
   const shotURL=buildShotURL(curLa,curLo,tMS);
+  // RFC 5545 text escaping
+  const icsText=t=>t.replace(/[\\;,]/g,'\\$&').replace(/\n/g,'\\n');
   const desc=
     'Shooting location: '+curLa.toFixed(5)+'\xB0N, '+curLo.toFixed(5)+'\xB0E\\n'+
     'Object: '+CONFIG.objLat.toFixed(5)+'\xB0N, '+CONFIG.objLon.toFixed(5)+'\xB0E  H='+CONFIG.objH+'m\\n'+
@@ -656,7 +700,7 @@ document.getElementById('pv-ics').onclick=function(){
     'UID:'+uid,
     'DTSTART:'+icsDate(tMS-15*60000),
     'DTEND:'+icsDate(tMS+15*60000),
-    'SUMMARY:🌙 Moon photography',
+    'SUMMARY:'+icsText('🌙 Moon behind '+objById(selObjId).name),
     'DESCRIPTION:'+desc,
     'LOCATION:'+curLa.toFixed(5)+','+curLo.toFixed(5),
     'URL:'+shotURL,
@@ -677,7 +721,7 @@ function updateInfoBox(la,lo,oe,dist,mm){
     '\u{1F4CD} Observer',
     '   lat '+la.toFixed(5)+'\xB0  lon '+lo.toFixed(5)+'\xB0',
     '   elevation '+Math.round(oe)+' m', '',
-    '\u{1F5FC} Object',
+    '\u{1F5FC} '+objById(selObjId).name,
     '   lat '+CONFIG.objLat.toFixed(5)+'\xB0  lon '+CONFIG.objLon.toFixed(5)+'\xB0',
     '   base elev '+Math.round(CONFIG.objElev)+' m  height '+CONFIG.objH+' m',
     '   distance '+Math.round(dist)+' m', '',
@@ -1262,11 +1306,14 @@ let gpsWatch=null,gpsPos=null,gpsDot=null,gpsAcc=null,gpsMsgTimer=0;
 function gpsPref(){try{return localStorage.getItem(GPS_KEY)==='1';}catch(e){return false;}}
 function setGpsPref(on){try{localStorage.setItem(GPS_KEY,on?'1':'0');}catch(e){}}
 function compass(deg){return['N','NE','E','SE','S','SW','W','NW'][Math.round(deg/45)%8];}
-function showGpsMsg(txt){
+// Short message at the bottom of the map; ms=0 keeps it up until hideMsg().
+function showMsg(txt,ms=5000){
   const t=document.getElementById('gps-msg');
   t.textContent=txt;t.style.display='block';
-  clearTimeout(gpsMsgTimer);gpsMsgTimer=setTimeout(()=>t.style.display='none',5000);
+  clearTimeout(gpsMsgTimer);
+  if(ms)gpsMsgTimer=setTimeout(hideMsg,ms);
 }
+function hideMsg(){clearTimeout(gpsMsgTimer);document.getElementById('gps-msg').style.display='none';}
 // In the preview: where the selected spot is relative to you.
 function updateGpsBadge(){
   const el=document.getElementById('pv-gps');
@@ -1281,7 +1328,7 @@ function updateGpsBadge(){
 }
 function startGps(){
   if(gpsWatch!=null)return;
-  if(!navigator.geolocation){showGpsMsg('Location is not available in this browser.');return;}
+  if(!navigator.geolocation){showMsg('Location is not available in this browser.');return;}
   document.getElementById('gps-btn').style.display='';
   gpsWatch=navigator.geolocation.watchPosition(pos=>{
     gpsPos={lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy};
@@ -1296,7 +1343,7 @@ function startGps(){
     }
     updateGpsBadge();
   },err=>{
-    showGpsMsg(err.code===1
+    showMsg(err.code===1
       ?'Location permission denied \u2014 allow it in your browser settings.'
       :'Location unavailable: '+err.message);
   },{enableHighAccuracy:true,maximumAge:5000,timeout:30000});
@@ -1310,7 +1357,7 @@ function stopGps(){
 }
 document.getElementById('gps-btn').onclick=()=>{
   if(gpsPos&&_map)_map.setView([gpsPos.lat,gpsPos.lon],Math.max(_map.getZoom(),15));
-  else showGpsMsg('Waiting for a location fix\u2026');
+  else showMsg('Waiting for a location fix\u2026');
 };
 
 // ── Weather (Open-Meteo) ──────────────────────────────────────────────────────
@@ -1419,7 +1466,7 @@ function clearArrows(){
 function addArrow(zone){
   const poly=L.polygon(zone.poly,{color:zone.color,weight:.75,opacity:.55,
       fillColor:zone.color,fillOpacity:.25})
-    .on('click',e=>{L.DomEvent.stop(e);openPreview(e.latlng.lat,e.latlng.lng,zone);})
+    .on('click',e=>{if(picking)return;L.DomEvent.stop(e);openPreview(e.latlng.lat,e.latlng.lng,zone);})
     .addTo(_map);
   arrowLayers.push({line:poly,mkr:null,tMS:zone.tMS});
 }
@@ -1572,15 +1619,183 @@ function buildAndRenderArrows(startDate,endDate){
   document.getElementById('settings-btn').addEventListener('click',dismiss,{once:true});
 })();
 
-// ── Settings modal ────────────────────────────────────────────────────────────
 if(!CONFIG.objW)CONFIG.objW=5;
 if(!CONFIG.timezone)CONFIG.timezone='local';
 
+// ── Objects ───────────────────────────────────────────────────────────────────
+// The objects to shoot are a list kept in this browser only, one of them
+// selected; index.html applies the selected one to CONFIG before the map is
+// made. A link's hash sets the object too: if it isn't in the list, it shows
+// as an unsaved "Shared object" that can be saved from the editor.
+const OBJ_KEY='luna-objects';
+// The lookout tower on the Uetliberg (Aussichtsturm Uto Kulm, OSM way
+// 334161815) — not the 187 m TV tower 200 m north of it. It is 70 m tall
+// with the antenna on top; 40 m leaves the antenna out of the shot.
+const DEFAULT_OBJECTS=[
+  {id:'uetliberg',name:'Uetliberg lookout tower',lat:47.349540,lon:8.491359,h:40,w:5}];
+let objects=DEFAULT_OBJECTS,storedSel=objects[0].id,selObjId,sharedObj=null;
+try{
+  const st=JSON.parse(localStorage.getItem(OBJ_KEY));
+  if(st&&Array.isArray(st.list)&&st.list.length){objects=st.list;storedSel=st.sel;}
+}catch(e){}
+function isCurrentObj(o){
+  return Math.abs(o.lat-CONFIG.objLat)<2e-6&&Math.abs(o.lon-CONFIG.objLon)<2e-6
+    &&Math.round(o.h)===Math.round(CONFIG.objH)&&Math.round(o.w)===Math.round(CONFIG.objW);
+}
+{
+  const cur=objects.find(o=>o.id===storedSel&&isCurrentObj(o))||objects.find(isCurrentObj);
+  if(cur)selObjId=cur.id;
+  else{
+    sharedObj={id:'shared',name:'Shared object',
+      lat:CONFIG.objLat,lon:CONFIG.objLon,h:CONFIG.objH,w:CONFIG.objW};
+    selObjId=sharedObj.id;
+  }
+}
+function saveObjects(){
+  try{localStorage.setItem(OBJ_KEY,JSON.stringify({sel:storedSel,list:objects}));}catch(e){}
+}
+function objById(id){return id==='shared'?sharedObj:objects.find(o=>o.id===id);}
+function renderObjSelect(){
+  const sel=document.getElementById('obj-sel');
+  sel.textContent='';
+  (sharedObj?[sharedObj,...objects]:objects).forEach(o=>
+    sel.add(new Option(o===sharedObj?o.name+' (not saved)':o.name,o.id)));
+  sel.add(new Option('\uFF0B Add object\u2026','add'));
+  sel.value=selObjId;
+}
+function selectObject(id){
+  selObjId=id;
+  if(id!=='shared'){storedSel=id;saveObjects();}
+  renderObjSelect();
+  applyObject(objById(id));
+}
+document.getElementById('obj-sel').onchange=e=>{
+  if(e.target.value==='add'){e.target.value=selObjId;openObjEditor(null);}
+  else selectObject(e.target.value);
+};
+document.getElementById('obj-edit').onclick=()=>openObjEditor(objById(selObjId));
+renderObjSelect();
+
+// Loading terrain for a new object takes a moment; objGen discards a load
+// that was overtaken by another switch, and nothing is computed until the
+// terrain matches CONFIG.
+let objGen=0,terrainReady=false;
+async function loadObjectTerrain(){
+  const gen=++objGen;
+  terrainReady=false;
+  ++buildGen;clearArrows();showProgress(null); // stop and drop the old object's ribbons
+  document.getElementById('status-badge').textContent='Loading terrain…';
+  const t=await loadTerrain(CONFIG.objLat,CONFIG.objLon);
+  if(gen!==objGen)return false;
+  TERRAIN=t;terrainReady=true;
+  CONFIG.objElev=sampleGrid(CONFIG.objLat,CONFIG.objLon);
+  return true;
+}
+// Recomputes the full configured range, resetting the date bar to it.
+function rebuildAll(){
+  if(!terrainReady)return; // the pending terrain load will do it
+  CONFIG.objElev=sampleGrid(CONFIG.objLat,CONFIG.objLon);
+  const fullStart=CONFIG.startISO.slice(0,10);
+  const fullEnd  =CONFIG.endISO  .slice(0,10);
+  document.getElementById('df-start').value=fullStart;
+  document.getElementById('df-end').value=fullEnd;
+  buildAndRenderArrows(fullStart,fullEnd);
+}
+async function applyObject(o){
+  const moved=o.lat!==CONFIG.objLat||o.lon!==CONFIG.objLon;
+  const changed=moved||o.h!==CONFIG.objH; // the width only matters in the preview
+  CONFIG.objLat=o.lat;CONFIG.objLon=o.lon;CONFIG.objH=o.h;CONFIG.objW=o.w;
+  CONFIG._shotMS=null;
+  syncURL();
+  if(!_map)return; // init picks up CONFIG
+  _objMarker.setLatLng([o.lat,o.lon]);
+  if(moved){
+    _map.flyToBounds(objBounds(),{padding:[40,40],duration:1});
+    if(!await loadObjectTerrain())return;
+  }
+  if(changed)rebuildAll();
+}
+// The map area searched for shooting spots around the object.
+function objBounds(){
+  const DEG=Math.PI/180,R=6371000,d=CONFIG.mapHalfKm*1000/R/DEG;
+  const dLon=d/Math.cos(CONFIG.objLat*DEG);
+  return[[CONFIG.objLat-d,CONFIG.objLon-dLon],[CONFIG.objLat+d,CONFIG.objLon+dLon]];
+}
+
+// ── Object editor ─────────────────────────────────────────────────────────────
+let editObj=null,picking=false;
+function fmtCoords(la,lo){return la.toFixed(6)+', '+lo.toFixed(6);}
+// "47.3495, 8.4913" as copied from Google Maps; also accepts 47.3495°N 8.4913°E.
+function parseCoords(txt){
+  const m=txt.trim().match(/^(-?\d+(?:\.\d+)?)\s*°?\s*([NS])?\s*[,;\s]\s*(-?\d+(?:\.\d+)?)\s*°?\s*([EW])?$/i);
+  if(!m)return null;
+  let la=parseFloat(m[1]),lo=parseFloat(m[3]);
+  if(m[2]&&/s/i.test(m[2]))la=-la;
+  if(m[4]&&/w/i.test(m[4]))lo=-lo;
+  if(Math.abs(la)>85||Math.abs(lo)>180)return null;
+  return[la,lo];
+}
+// o: the object to edit, null for a new one.
+function openObjEditor(o){
+  editObj=o;
+  const c=o?[o.lat,o.lon]:_map?[_map.getCenter().lat,_map.getCenter().lng]:null;
+  document.getElementById('ob-title').textContent=
+    !o?'Add object':o===sharedObj?'Save shared object':'Edit object';
+  document.getElementById('ob-name').value=o&&o!==sharedObj?o.name:'';
+  document.getElementById('ob-coords').value=c?fmtCoords(c[0],c[1]):'';
+  document.getElementById('ob-h').value=o?o.h:50;
+  document.getElementById('ob-w').value=o?o.w:5;
+  document.getElementById('ob-err').textContent='';
+  document.getElementById('ob-del').style.display=
+    o&&o!==sharedObj&&objects.length>1?'':'none';
+  document.getElementById('ob-overlay').classList.add('open');
+  document.getElementById('ob-name').focus();
+}
+function closeObjEditor(){document.getElementById('ob-overlay').classList.remove('open');}
+document.getElementById('ob-cancel').onclick=closeObjEditor;
+document.getElementById('ob-pick').onclick=()=>{
+  if(!_map)return;
+  document.getElementById('ob-overlay').classList.remove('open');
+  picking=true;
+  _map.getContainer().classList.add('obj-picking');
+  showMsg('Tap the object on the map',0);
+};
+function endPick(){
+  picking=false;
+  _map.getContainer().classList.remove('obj-picking');
+  hideMsg();
+  document.getElementById('ob-overlay').classList.add('open');
+}
+document.addEventListener('keydown',e=>{if(picking&&e.key==='Escape')endPick();});
+document.getElementById('ob-ok').onclick=()=>{
+  const err=document.getElementById('ob-err');
+  const c=parseCoords(document.getElementById('ob-coords').value);
+  const h=Math.round(parseFloat(document.getElementById('ob-h').value));
+  const w=Math.round(parseFloat(document.getElementById('ob-w').value));
+  if(!c){err.textContent='Enter the position as latitude, longitude \u2014 e.g. 47.3495, 8.4914';return;}
+  if(!(h>=1&&h<=9999)){err.textContent='Height must be between 1 and 9999 m.';return;}
+  if(!(w>=1&&w<=9999)){err.textContent='Width must be between 1 and 9999 m.';return;}
+  const name=document.getElementById('ob-name').value.trim()||fmtCoords(c[0],c[1]);
+  const isSaved=editObj&&editObj!==sharedObj;
+  const o={id:isSaved?editObj.id:'o'+Date.now().toString(36),name,lat:c[0],lon:c[1],h,w};
+  if(isSaved)objects[objects.indexOf(editObj)]=o;
+  else objects.push(o);
+  if(editObj===sharedObj)sharedObj=null;
+  closeObjEditor();
+  selectObject(o.id);
+};
+document.getElementById('ob-del').onclick=()=>{
+  if(!confirm('Delete \u201C'+editObj.name+'\u201D from your objects?'))return;
+  objects.splice(objects.indexOf(editObj),1);
+  closeObjEditor();
+  if(editObj.id===storedSel)storedSel=objects[0].id;
+  if(editObj.id===selObjId)selectObject(objects[0].id);
+  else{saveObjects();renderObjSelect();}
+};
+
+// ── Settings modal ────────────────────────────────────────────────────────────
+
 document.getElementById('settings-btn').onclick=()=>{
-  document.getElementById('st-lat').value=CONFIG.objLat;
-  document.getElementById('st-lon').value=CONFIG.objLon;
-  document.getElementById('st-h').value=CONFIG.objH;
-  document.getElementById('st-w').value=CONFIG.objW;
   document.getElementById('st-start').value=CONFIG.startISO.slice(0,10);
   document.getElementById('st-end').value=CONFIG.endISO.slice(0,10);
   document.getElementById('st-step').value=CONFIG.stepH;
@@ -1596,14 +1811,7 @@ document.getElementById('settings-btn').onclick=()=>{
 document.getElementById('st-cancel').onclick=()=>
   document.getElementById('st-overlay').classList.remove('open');
 
-document.getElementById('st-ok').onclick=async()=>{
-  const newLat=parseFloat(document.getElementById('st-lat').value);
-  const newLon=parseFloat(document.getElementById('st-lon').value);
-  const locChanged=newLat!==CONFIG.objLat||newLon!==CONFIG.objLon;
-  CONFIG.objLat     =newLat;
-  CONFIG.objLon     =newLon;
-  CONFIG.objH       =parseFloat(document.getElementById('st-h').value);
-  CONFIG.objW       =parseFloat(document.getElementById('st-w').value);
+document.getElementById('st-ok').onclick=()=>{
   CONFIG.startISO   =document.getElementById('st-start').value+'T00:00:00Z';
   CONFIG.endISO     =document.getElementById('st-end').value+'T23:59:59Z';
   CONFIG.stepH      =parseFloat(document.getElementById('st-step').value);
@@ -1618,21 +1826,7 @@ document.getElementById('st-ok').onclick=async()=>{
   CONFIG._shotMS=null;
   document.getElementById('st-overlay').classList.remove('open');
   syncURL();
-  if(_map){
-    _objMarker.setLatLng([CONFIG.objLat,CONFIG.objLon]);
-    _map.flyTo([CONFIG.objLat,CONFIG.objLon],_map.getZoom());
-  }
-  if(locChanged){
-    document.getElementById('status-badge').textContent='Loading terrain…';
-    TERRAIN=await loadTerrain(CONFIG.objLat,CONFIG.objLon);
-  }
-  CONFIG.objElev=sampleGrid(CONFIG.objLat,CONFIG.objLon);
-
-  const fullStart=CONFIG.startISO.slice(0,10);
-  const fullEnd  =CONFIG.endISO  .slice(0,10);
-  document.getElementById('df-start').value=fullStart;
-  document.getElementById('df-end').value=fullEnd;
-  buildAndRenderArrows(fullStart,fullEnd);
+  rebuildAll();
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -1645,6 +1839,11 @@ document.getElementById('st-ok').onclick=async()=>{
     html:'<div style="font-size:14px;line-height:1;color:#ef4444;text-shadow:0 1px 3px rgba(0,0,0,.8)">▲</div>',
     className:'',iconSize:[14,14],iconAnchor:[7,12]});
   _objMarker=L.marker([CONFIG.objLat,CONFIG.objLon],{icon:objIcon}).addTo(_map);
+  _map.on('click',e=>{
+    if(!picking)return;
+    document.getElementById('ob-coords').value=fmtCoords(e.latlng.lat,e.latlng.lng);
+    endPick();
+  });
   const fullStart=CONFIG.startISO.slice(0,10);
   const fullEnd  =CONFIG.endISO  .slice(0,10);
   const ds=document.getElementById('df-start'),de=document.getElementById('df-end');
@@ -1657,11 +1856,6 @@ document.getElementById('st-ok').onclick=async()=>{
     ds.value=fullStart;de.value=fullEnd;
   }
   syncURL();
-  document.getElementById('status-badge').textContent='Loading terrain…';
-  TERRAIN=await loadTerrain(CONFIG.objLat,CONFIG.objLon);
-  CONFIG.objElev=sampleGrid(CONFIG.objLat,CONFIG.objLon);
-
-  buildAndRenderArrows(ds.value,de.value);
   // The date bar sets the computed range (same as Start/End in the settings).
   // Dates before 2000 or after 2179 don't fit the shareable link.
   [ds,de].forEach(el=>el.addEventListener('input',()=>{
@@ -1673,8 +1867,9 @@ document.getElementById('st-ok').onclick=async()=>{
     CONFIG.endISO  =de.value+'T23:59:59Z';
     CONFIG._shotMS=null;
     syncURL();
-    buildAndRenderArrows(ds.value,de.value);
+    if(terrainReady)buildAndRenderArrows(ds.value,de.value);
   }));
+  if(await loadObjectTerrain())buildAndRenderArrows(ds.value,de.value);
 })();
 
 })(); // end application IIFE

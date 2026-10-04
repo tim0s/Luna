@@ -18,7 +18,7 @@
 
     const CONFIG={
       objLat:47.349540, objLon:8.491359,
-      objH:70, objElev:0,
+      objH:40, objElev:0,
       startISO:_isoDay(_t)+'T00:00:00Z',
       endISO:_isoDay(_t7)+'T23:00:00Z',
       stepH:0.5, minAltDeg:2, minDistM:1500,
@@ -26,6 +26,14 @@
       shadowStepM:30, mapHalfKm:5,
       refraction:true,
     };
+
+    // The object selected in this browser's object list (see moon_shadow.js).
+    // A link's hash, applied below, takes precedence.
+    try{
+      const s=JSON.parse(localStorage.getItem('luna-objects'));
+      const o=s&&s.list.find(o=>o.id===s.sel);
+      if(o){CONFIG.objLat=o.lat;CONFIG.objLon=o.lon;CONFIG.objH=o.h;CONFIG.objW=o.w;}
+    }catch(e){}
 
     // Apply URL hash params (allows shareable links for specific shots).
     // Supports both new binary+base64 format and legacy key=value format.

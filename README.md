@@ -46,14 +46,18 @@ Luna fetches a 7-day hourly forecast for the object's location from [Open-Meteo]
 - Cloud forecasts are only reliable a few days ahead: beyond 5 days the preview marks the forecast as uncertain, and those moments are never faded or counted.
 - If the forecast can't be loaded, Luna works exactly as without it.
 
+## Objects
+
+The dropdown at the top of the map picks the object to photograph the moon behind; Luna computes for one object at a time. It starts with the lookout tower on the Uetliberg in Zurich. Choose **＋ Add object…** to add your own: give it a name, its position — tap it on the map with **📍 Pick on map**, or paste coordinates, e.g. from Google Maps — and its height and width in metres. The ✎ button next to the dropdown edits or deletes the selected object.
+
+Your objects and the selected one are saved in this browser, so Luna opens with the same list next time. A shared link opens at the object it was made for; if that object isn't in your list it appears as *Shared object (not saved)*, and ✎ lets you name and save it.
+
 ## Settings
 
 Click the ⚙ button to change:
 
 | Field | Meaning |
 |---|---|
-| Latitude / Longitude | Object position |
-| Height / Width | Object dimensions in metres |
 | Start / End | Time window to scan |
 | Step | Time resolution in hours |
 | Min moon altitude | Reject moments when moon is too low |
